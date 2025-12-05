@@ -1,12 +1,17 @@
 package collector
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"runtime"
 	"time"
 
 	"observex-agent/models"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -110,5 +115,111 @@ func CollectMetrics() (*models.Metric, error) {
 		}
 	}
 
+	// Docker Metrics
+	dockerMetrics, err := collectDockerMetrics()
+	if err == nil {
+		metric.Docker = dockerMetrics
+	}
+
 	return metric, nil
+}
+
+func collectDockerMetrics() (*models.DockerInfo, error) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+
+	dockerInfo := &models.DockerInfo{
+		TotalContainers:   len(containers),
+		RunningContainers: 0,
+		StoppedContainers: 0,
+		PausedContainers:  0,
+		Containers:        make([]models.ContainerInfo, 0),
+	}
+
+	for _, c := range containers {
+		switch c.State {
+		case "running":
+			dockerInfo.RunningContainers++
+		case "exited":
+			dockerInfo.StoppedContainers++
+		case "paused":
+			dockerInfo.PausedContainers++
+		}
+
+		containerInfo := models.ContainerInfo{
+			ID:      c.ID[:12],
+			Name:    c.Names[0][1:], // Remove leading '/'
+			Image:   c.Image,
+			State:   c.State,
+			Status:  c.Status,
+			Created: c.Created,
+		}
+
+		// Get container stats if running
+		if c.State == "running" {
+			stats, err := cli.ContainerStats(ctx, c.ID, false)
+			if err == nil {
+				var v types.StatsJSON
+				if err := json.NewDecoder(stats.Body).Decode(&v); err == nil {
+					// Calculate CPU percentage
+					cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+					systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+					cpuPercent := 0.0
+					if systemDelta > 0 && cpuDelta > 0 {
+						cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+					}
+
+					// Memory
+					memUsage := float64(v.MemoryStats.Usage)
+					memLimit := float64(v.MemoryStats.Limit)
+					memPercent := 0.0
+					if memLimit > 0 {
+						memPercent = (memUsage / memLimit) * 100.0
+					}
+
+					// Network
+					var netRx, netTx uint64
+					for _, net := range v.Networks {
+						netRx += net.RxBytes
+						netTx += net.TxBytes
+					}
+
+					// Block I/O
+					var blockRead, blockWrite uint64
+					for _, bio := range v.BlkioStats.IoServiceBytesRecursive {
+						if bio.Op == "read" || bio.Op == "Read" {
+							blockRead += bio.Value
+						} else if bio.Op == "write" || bio.Op == "Write" {
+							blockWrite += bio.Value
+						}
+					}
+
+					containerInfo.CPUPercent = cpuPercent
+					containerInfo.MemoryUsage = v.MemoryStats.Usage
+					containerInfo.MemoryLimit = v.MemoryStats.Limit
+					containerInfo.MemoryPercent = memPercent
+					containerInfo.NetworkRx = netRx
+					containerInfo.NetworkTx = netTx
+					containerInfo.BlockRead = blockRead
+					containerInfo.BlockWrite = blockWrite
+				}
+				stats.Body.Close()
+			}
+		}
+
+		dockerInfo.Containers = append(dockerInfo.Containers, containerInfo)
+	}
+
+	return dockerInfo, nil
 }

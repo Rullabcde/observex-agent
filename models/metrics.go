@@ -3,9 +3,9 @@ package models
 import "time"
 
 type SystemInfo struct {
-	OS      string `json:"os"`
-	Kernel  string `json:"kernel"`
-	Arch    string `json:"arch"`
+	OS     string `json:"os"`
+	Kernel string `json:"kernel"`
+	Arch   string `json:"arch"`
 }
 
 type CPUInfo struct {
@@ -37,14 +37,39 @@ type DiskInfo struct {
 }
 
 type NetworkInfo struct {
-	BytesSent   uint64 `json:"bytesSent"`
-	BytesRecv   uint64 `json:"bytesRecv"`
+	BytesSent uint64 `json:"bytesSent"`
+	BytesRecv uint64 `json:"bytesRecv"`
 }
 
 type LoadInfo struct {
 	Load1  float64 `json:"load1"`
 	Load5  float64 `json:"load5"`
 	Load15 float64 `json:"load15"`
+}
+
+type ContainerInfo struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Image         string  `json:"image"`
+	State         string  `json:"state"`
+	Status        string  `json:"status"`
+	Created       int64   `json:"created"`
+	CPUPercent    float64 `json:"cpuPercent,omitempty"`
+	MemoryUsage   uint64  `json:"memoryUsage,omitempty"`
+	MemoryLimit   uint64  `json:"memoryLimit,omitempty"`
+	MemoryPercent float64 `json:"memoryPercent,omitempty"`
+	NetworkRx     uint64  `json:"networkRx,omitempty"`
+	NetworkTx     uint64  `json:"networkTx,omitempty"`
+	BlockRead     uint64  `json:"blockRead,omitempty"`
+	BlockWrite    uint64  `json:"blockWrite,omitempty"`
+}
+
+type DockerInfo struct {
+	TotalContainers   int             `json:"totalContainers"`
+	RunningContainers int             `json:"runningContainers"`
+	StoppedContainers int             `json:"stoppedContainers"`
+	PausedContainers  int             `json:"pausedContainers"`
+	Containers        []ContainerInfo `json:"containers"`
 }
 
 type Metric struct {
@@ -58,33 +83,35 @@ type Metric struct {
 	Disk      DiskInfo    `json:"disk"`
 	Network   NetworkInfo `json:"network"`
 	Load      LoadInfo    `json:"load"`
+	Docker    *DockerInfo `json:"docker,omitempty"`
 }
 
 type MetricPayload struct {
-	CPU         float64 `json:"cpu"`
-	Memory      float64 `json:"memory"`
-	MemoryUsed  float64 `json:"memoryUsed"`
-	MemoryTotal float64 `json:"memoryTotal"`
-	Swap        float64 `json:"swap"`
-	SwapUsed    float64 `json:"swapUsed"`
-	SwapTotal   float64 `json:"swapTotal"`
-	Disk        float64 `json:"disk"`
-	DiskUsed    float64 `json:"diskUsed"`
-	DiskTotal   float64 `json:"diskTotal"`
-	DiskRead    float64 `json:"diskRead"`
-	DiskWrite   float64 `json:"diskWrite"`
-	NetworkIn   float64 `json:"networkIn"`
-	NetworkOut  float64 `json:"networkOut"`
-	Load1       float64 `json:"load1"`
-	Load5       float64 `json:"load5"`
-	Load15      float64 `json:"load15"`
-	Uptime      float64 `json:"uptime"`
-	Hostname    string  `json:"hostname"`
-	OS          string  `json:"os"`
-	Kernel      string  `json:"kernel"`
-	Arch        string  `json:"arch"`
-	CPUModel    string  `json:"cpuModel"`
-	CPUCores    int     `json:"cpuCores"`
+	CPU         float64     `json:"cpu"`
+	Memory      float64     `json:"memory"`
+	MemoryUsed  float64     `json:"memoryUsed"`
+	MemoryTotal float64     `json:"memoryTotal"`
+	Swap        float64     `json:"swap"`
+	SwapUsed    float64     `json:"swapUsed"`
+	SwapTotal   float64     `json:"swapTotal"`
+	Disk        float64     `json:"disk"`
+	DiskUsed    float64     `json:"diskUsed"`
+	DiskTotal   float64     `json:"diskTotal"`
+	DiskRead    float64     `json:"diskRead"`
+	DiskWrite   float64     `json:"diskWrite"`
+	NetworkIn   float64     `json:"networkIn"`
+	NetworkOut  float64     `json:"networkOut"`
+	Load1       float64     `json:"load1"`
+	Load5       float64     `json:"load5"`
+	Load15      float64     `json:"load15"`
+	Uptime      float64     `json:"uptime"`
+	Hostname    string      `json:"hostname"`
+	OS          string      `json:"os"`
+	Kernel      string      `json:"kernel"`
+	Arch        string      `json:"arch"`
+	CPUModel    string      `json:"cpuModel"`
+	CPUCores    int         `json:"cpuCores"`
+	Docker      *DockerInfo `json:"docker,omitempty"`
 }
 
 func (m *Metric) ToPayload() *MetricPayload {
@@ -113,5 +140,6 @@ func (m *Metric) ToPayload() *MetricPayload {
 		Arch:        m.System.Arch,
 		CPUModel:    m.CPU.Model,
 		CPUCores:    m.CPU.Cores,
+		Docker:      m.Docker,
 	}
 }
