@@ -29,7 +29,7 @@ func main() {
 		log.Fatal("API_URL environment variable is required")
 	}
 
-	log.Printf("ObserveX Agent v%s (%s) built on %s", version, commit, date)
+	log.Printf("ObserveX Agent %s (%s) built on %s", version, commit, date)
 	log.Printf("API URL: %s", cfg.APIURL)
 	log.Printf("Send Interval: %v", cfg.SendInterval)
 
