@@ -2,6 +2,7 @@ package collector
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 	"time"
 
@@ -20,6 +21,10 @@ func CollectMetrics() (*models.Metric, error) {
 		Timestamp: time.Now(),
 	}
 
+	// OS detection
+	currentOS := runtime.GOOS
+	metric.OS = currentOS
+
 	// Hostname
 	hostname, _ := os.Hostname()
 	metric.Hostname = hostname
@@ -32,21 +37,23 @@ func CollectMetrics() (*models.Metric, error) {
 		Arch:   hostInfo.KernelArch,
 	}
 
-	// Uptime
 	metric.Uptime = hostInfo.Uptime
 
 	// CPU
 	percent, _ := cpu.Percent(time.Second, false)
 	cpuCount, _ := cpu.Counts(true)
 	cpuInfo, _ := cpu.Info()
+
 	model := ""
 	if len(cpuInfo) > 0 {
 		model = cpuInfo[0].ModelName
 	}
+
 	cpuPercent := 0.0
 	if len(percent) > 0 {
 		cpuPercent = percent[0]
 	}
+
 	metric.CPU = models.CPUInfo{
 		Percent: cpuPercent,
 		Cores:   cpuCount,
@@ -70,18 +77,21 @@ func CollectMetrics() (*models.Metric, error) {
 		Percent: swapInfo.UsedPercent,
 	}
 
-	// Disk
+	// Disk usage
 	diskPath := "/"
-	if runtime.GOOS == "windows" {
+	if currentOS == "windows" {
 		diskPath = "C:\\"
 	}
+
 	diskUsage, _ := disk.Usage(diskPath)
 	ioCounters, _ := disk.IOCounters()
+
 	var readBytes, writeBytes uint64
 	for _, counter := range ioCounters {
 		readBytes += counter.ReadBytes
 		writeBytes += counter.WriteBytes
 	}
+
 	metric.Disk = models.DiskInfo{
 		Total:      diskUsage.Total,
 		Free:       diskUsage.Free,
@@ -100,15 +110,72 @@ func CollectMetrics() (*models.Metric, error) {
 		}
 	}
 
-	// Load Average
-	loadAvg, _ := load.Avg()
-	if loadAvg != nil {
-		metric.Load = models.LoadInfo{
-			Load1:  loadAvg.Load1,
-			Load5:  loadAvg.Load5,
-			Load15: loadAvg.Load15,
+	// Load Average (Linux only)
+	if currentOS != "windows" {
+		loadAvg, _ := load.Avg()
+		if loadAvg != nil {
+			metric.Load = models.LoadInfo{
+				Load1:  loadAvg.Load1,
+				Load5:  loadAvg.Load5,
+				Load15: loadAvg.Load15,
+			}
 		}
 	}
 
+	// =======================================
+	//  LOG COLLECTOR BAGIAN INI
+	// =======================================
+	metric.Logs = collectSystemLogs(currentOS)
+	// =======================================
+
 	return metric, nil
+}
+
+//
+// ============================================================
+//  LOG COLLECTOR (WINDOWS + LINUX) — SUDAH TERGABUNG
+// ============================================================
+//
+func collectSystemLogs(osName string) models.LogsInfo {
+	logs := models.LogsInfo{}
+
+	switch osName {
+	case "windows":
+		logs.System = runPowerShell(`Get-EventLog -LogName System -Newest 50 | Out-String`)
+		logs.Error = runPowerShell(`Get-EventLog -LogName Application -Newest 30 | Out-String`)
+		logs.Security = runPowerShell(`Get-EventLog -LogName Security -Newest 30 | Out-String`)
+
+	default:
+		if _, err := os.Stat("/var/log/syslog"); err == nil {
+			logs.System = readFile("/var/log/syslog")
+		}
+		if _, err := os.Stat("/var/log/messages"); err == nil {
+			logs.Error = readFile("/var/log/messages")
+		}
+
+		logs.Security = runCmd("journalctl", "-n", "100")
+	}
+
+	return logs
+}
+
+//
+// Helper functions
+//
+func runPowerShell(cmd string) string {
+	out, _ := exec.Command("powershell", "-Command", cmd).CombinedOutput()
+	return string(out)
+}
+
+func runCmd(name string, args ...string) string {
+	out, _ := exec.Command(name, args...).CombinedOutput()
+	return string(out)
+}
+
+func readFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

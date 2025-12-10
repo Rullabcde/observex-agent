@@ -87,6 +87,13 @@ type MetricPayload struct {
 	CPUCores    int     `json:"cpuCores"`
 }
 
+
+type LogsInfo struct {
+    System  string
+    Error   string
+    Security string
+}
+ 
 func (m *Metric) ToPayload() *MetricPayload {
 	return &MetricPayload{
 		CPU:         m.CPU.Percent,
