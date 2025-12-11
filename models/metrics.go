@@ -87,13 +87,14 @@ type MetricPayload struct {
 	Arch        string  `json:"arch"`
 	CPUModel    string  `json:"cpuModel"`
 	CPUCores    int     `json:"cpuCores"`
+	Logs        *LogsInfo `json:"logs,omitempty"`
 }
 
 
 type LogsInfo struct {
-    System  string
-    Error   string
-    Security string
+    System   string `json:"system"`
+    Error    string `json:"error"`
+    Security string `json:"security"`
 }
  
 func (m *Metric) ToPayload() *MetricPayload {
@@ -122,5 +123,6 @@ func (m *Metric) ToPayload() *MetricPayload {
 		Arch:        m.System.Arch,
 		CPUModel:    m.CPU.Model,
 		CPUCores:    m.CPU.Cores,
+		Logs:        &m.Logs,
 	}
 }
