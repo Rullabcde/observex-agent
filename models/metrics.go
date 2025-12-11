@@ -50,6 +50,7 @@ type LoadInfo struct {
 type Metric struct {
 	Timestamp time.Time   `json:"timestamp"`
 	Hostname  string      `json:"hostname"`
+	OS        string      `json:"os"`
 	System    SystemInfo  `json:"system"`
 	Uptime    uint64      `json:"uptime"`
 	CPU       CPUInfo     `json:"cpu"`
@@ -58,6 +59,7 @@ type Metric struct {
 	Disk      DiskInfo    `json:"disk"`
 	Network   NetworkInfo `json:"network"`
 	Load      LoadInfo    `json:"load"`
+	Logs      LogsInfo    `json:"logs"`
 }
 
 type MetricPayload struct {
