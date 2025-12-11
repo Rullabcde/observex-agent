@@ -1,13 +1,18 @@
 package collector
 
 import (
+	"context"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"observex-agent/models"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -16,30 +21,29 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
+// CollectMetrics kumpulin semua metrik sistem
 func CollectMetrics() (*models.Metric, error) {
 	metric := &models.Metric{
 		Timestamp: time.Now(),
 	}
 
-	// OS detection
+	// Deteksi sistem operasi (linux, windows, darwin)
 	currentOS := runtime.GOOS
 	metric.OS = currentOS
 
-	// Hostname
+	// Hostname & System Info
 	hostname, _ := os.Hostname()
 	metric.Hostname = hostname
 
-	// System Info
 	hostInfo, _ := host.Info()
 	metric.System = models.SystemInfo{
 		OS:     hostInfo.OS + " " + hostInfo.Platform + " " + hostInfo.PlatformVersion,
 		Kernel: hostInfo.KernelVersion,
 		Arch:   hostInfo.KernelArch,
 	}
-
 	metric.Uptime = hostInfo.Uptime
 
-	// CPU
+	// CPU usage
 	percent, _ := cpu.Percent(time.Second, false)
 	cpuCount, _ := cpu.Counts(true)
 	cpuInfo, _ := cpu.Info()
@@ -60,7 +64,7 @@ func CollectMetrics() (*models.Metric, error) {
 		Model:   model,
 	}
 
-	// Memory
+	// Memory/RAM
 	memInfo, _ := mem.VirtualMemory()
 	metric.Memory = models.MemoryInfo{
 		Total:     memInfo.Total,
@@ -77,15 +81,16 @@ func CollectMetrics() (*models.Metric, error) {
 		Percent: swapInfo.UsedPercent,
 	}
 
-	// Disk usage
+	// Disk usage (Windows pake C:\, Linux pake /)
 	diskPath := "/"
 	if currentOS == "windows" {
 		diskPath = "C:\\"
 	}
 
 	diskUsage, _ := disk.Usage(diskPath)
-	ioCounters, _ := disk.IOCounters()
 
+	// Disk I/O (total semua disk)
+	ioCounters, _ := disk.IOCounters()
 	var readBytes, writeBytes uint64
 	for _, counter := range ioCounters {
 		readBytes += counter.ReadBytes
@@ -101,7 +106,7 @@ func CollectMetrics() (*models.Metric, error) {
 		WriteBytes: writeBytes,
 	}
 
-	// Network
+	// Network I/O (aggregated semua interface)
 	netIO, _ := net.IOCounters(false)
 	if len(netIO) > 0 {
 		metric.Network = models.NetworkInfo{
@@ -110,7 +115,7 @@ func CollectMetrics() (*models.Metric, error) {
 		}
 	}
 
-	// Load Average (Linux only)
+	// Load Average (Linux only, Windows gak support)
 	if currentOS != "windows" {
 		loadAvg, _ := load.Avg()
 		if loadAvg != nil {
@@ -122,60 +127,165 @@ func CollectMetrics() (*models.Metric, error) {
 		}
 	}
 
-	// =======================================
-	//  LOG COLLECTOR BAGIAN INI
-	// =======================================
+	// Kumpulin logs
 	metric.Logs = collectSystemLogs(currentOS)
-	// =======================================
+
+	// Kumpulin container info (kalo ada Docker)
+	metric.Containers = collectContainerInfo()
 
 	return metric, nil
 }
 
-//
-// ============================================================
-//  LOG COLLECTOR (WINDOWS + LINUX) — SUDAH TERGABUNG
-// ============================================================
-//
+// collectSystemLogs kumpulin log berdasarkan OS/environment
 func collectSystemLogs(osName string) models.LogsInfo {
 	logs := models.LogsInfo{}
 
+	// Cek dulu ada docker gak
+	if isDockerEnvironment() {
+		return collectDockerLogs()
+	}
+
 	switch osName {
 	case "windows":
+		// Windows pake PowerShell buat akses Event Log
 		logs.System = runPowerShell(`Get-EventLog -LogName System -Newest 50 | Out-String`)
 		logs.Error = runPowerShell(`Get-EventLog -LogName Application -Newest 30 | Out-String`)
 		logs.Security = runPowerShell(`Get-EventLog -LogName Security -Newest 30 | Out-String`)
 
 	default:
+		// Linux/Unix pake syslog/journalctl
 		if _, err := os.Stat("/var/log/syslog"); err == nil {
-			logs.System = readFile("/var/log/syslog")
-		}
-		if _, err := os.Stat("/var/log/messages"); err == nil {
-			logs.Error = readFile("/var/log/messages")
+			logs.System = runCmd("tail", "-n", "100", "/var/log/syslog")
+		} else if _, err := os.Stat("/var/log/messages"); err == nil {
+			logs.System = runCmd("tail", "-n", "100", "/var/log/messages")
 		}
 
-		logs.Security = runCmd("journalctl", "-n", "100")
+		logs.Error = runCmd("journalctl", "-p", "err", "-n", "50", "--no-pager")
+		logs.Security = runCmd("journalctl", "-n", "100", "--no-pager")
 	}
 
 	return logs
 }
 
-//
-// Helper functions
-//
+// isDockerEnvironment cek ada docker.sock gak
+func isDockerEnvironment() bool {
+	_, err := os.Stat("/var/run/docker.sock")
+	return err == nil
+}
+
+// collectDockerLogs ambil log dari semua running containers
+func collectDockerLogs() models.LogsInfo {
+	logs := models.LogsInfo{}
+
+	// Connect ke Docker daemon
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		logs.Error = "Docker connect failed: " + err.Error()
+		return logs
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+
+	// List semua container yang running
+	containers, err := cli.ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		logs.Error = "Container list failed: " + err.Error()
+		return logs
+	}
+
+	var systemLogs, errorLogs strings.Builder
+
+	for _, c := range containers {
+		// Ambil nama container
+		name := "unknown"
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		// Ambil 30 line terakhir dari container
+		reader, err := cli.ContainerLogs(ctx, c.ID, container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       "30",
+			Timestamps: true,
+		})
+		if err != nil {
+			continue
+		}
+
+		logBytes, _ := io.ReadAll(reader)
+		reader.Close()
+
+		logContent := string(logBytes)
+		systemLogs.WriteString("\n=== " + name + " ===\n" + logContent)
+
+		// Filter yang ada error/fatal
+		for _, line := range strings.Split(logContent, "\n") {
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "error") || strings.Contains(lower, "fatal") {
+				errorLogs.WriteString(name + ": " + line + "\n")
+			}
+		}
+	}
+
+	logs.System = systemLogs.String()
+	logs.Error = errorLogs.String()
+	logs.Security = runCmd("docker", "events", "--since", "5m", "--until", "now")
+
+	return logs
+}
+
+// collectContainerInfo ambil info semua container (running + stopped)
+func collectContainerInfo() []models.ContainerInfo {
+	// Cek dulu ada docker gak
+	if !isDockerEnvironment() {
+		return nil
+	}
+
+	// Connect ke Docker daemon
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+
+	// List semua container (All: true = termasuk yang stopped)
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil
+	}
+
+	var result []models.ContainerInfo
+	for _, c := range containers {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		result = append(result, models.ContainerInfo{
+			ID:      c.ID[:12], // Short ID
+			Name:    name,
+			Image:   c.Image,
+			Status:  c.Status,
+			State:   c.State,
+			Created: c.Created,
+		})
+	}
+
+	return result
+}
+
+// runPowerShell jalanin command PowerShell
 func runPowerShell(cmd string) string {
 	out, _ := exec.Command("powershell", "-Command", cmd).CombinedOutput()
 	return string(out)
 }
 
+// runCmd jalanin command shell biasa
 func runCmd(name string, args ...string) string {
 	out, _ := exec.Command(name, args...).CombinedOutput()
 	return string(out)
-}
-
-func readFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }

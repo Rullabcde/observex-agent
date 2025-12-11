@@ -12,6 +12,7 @@ import (
 	"observex-agent/config"
 )
 
+// Build info (di-inject pas build pake ldflags)
 var (
 	version = "dev"
 	commit  = "none"
@@ -19,12 +20,13 @@ var (
 )
 
 func main() {
+	// Load config dari env
 	cfg := config.Load()
 
+	// Validasi config wajib
 	if cfg.APIKey == "" {
 		log.Fatal("API_KEY environment variable is required")
 	}
-
 	if cfg.APIURL == "" {
 		log.Fatal("API_URL environment variable is required")
 	}
@@ -33,25 +35,27 @@ func main() {
 	log.Printf("API URL: %s", cfg.APIURL)
 	log.Printf("Send Interval: %v", cfg.SendInterval)
 
+	// Bikin sender
 	sender := api.NewSender(cfg.APIURL, cfg.APIKey)
 
-	// Handle graceful shutdown
+	// Setup graceful shutdown (Ctrl+C, SIGTERM)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	// Start metrics collection loop
+	// Jalanin collector di goroutine
 	go runCollector(sender, cfg.SendInterval, stop)
 
-	// Wait for shutdown signal
+	// Tunggu sampe ada signal shutdown
 	<-stop
 	log.Println("Shutting down agent...")
 }
 
+// runCollector loop kirim metrik tiap interval
 func runCollector(sender *api.Sender, interval time.Duration, stop chan os.Signal) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Send immediately on startup
+	// Kirim langsung pas startup
 	sendMetrics(sender)
 
 	for {
@@ -64,6 +68,7 @@ func runCollector(sender *api.Sender, interval time.Duration, stop chan os.Signa
 	}
 }
 
+// sendMetrics kumpulin + kirim metrik
 func sendMetrics(sender *api.Sender) {
 	metric, err := collector.CollectMetrics()
 	if err != nil {

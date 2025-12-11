@@ -13,26 +13,29 @@ import (
 	"observex-agent/models"
 )
 
+// Sender struct buat kirim metrik ke API
 type Sender struct {
-	apiURL string
-	apiKey string
-	client *http.Client
-	maxLogSize int
+	apiURL       string
+	apiKey       string
+	client       *http.Client
+	maxLogSize   int
 	compressLogs bool
 }
 
+// NewSender bikin sender baru
 func NewSender(apiURL, apiKey string) *Sender {
 	return &Sender{
-		apiURL: apiURL,
-		apiKey: apiKey,
-		maxLogSize: 400_000,     // 400 KB batas aman
-		compressLogs: true,      // aktifkan kompresi log
+		apiURL:       apiURL,
+		apiKey:       apiKey,
+		maxLogSize:   400_000, // 400 KB batas aman
+		compressLogs: true,   // aktifin gzip
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
+// APIResponse response dari server
 type APIResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -41,11 +44,10 @@ type APIResponse struct {
 	Code    string `json:"code,omitempty"`
 }
 
+// SendMetrics kirim metrik ke API server
 func (s *Sender) SendMetrics(metric *models.Metric) error {
 
-	// ==============================
-	// 1. LIMIT SIZE LOG SEBELUM KIRIM
-	// ==============================
+	// Truncate log yang kegedean
 	if len(metric.Logs.System) > s.maxLogSize {
 		metric.Logs.System = metric.Logs.System[:s.maxLogSize] + "\n[TRUNCATED]"
 	}
@@ -56,19 +58,16 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 		metric.Logs.Security = metric.Logs.Security[:s.maxLogSize] + "\n[TRUNCATED]"
 	}
 
-	// =====================================
-	// 2. CONVERT KE PAYLOAD (SUDAH ADA LOG)
-	// =====================================
+	// Convert ke payload format
 	payload := metric.ToPayload()
 
+	// Marshal ke JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// =====================================
-	// 3. OPSI: KOMPRESI GZIP LOG JIKA BESAR
-	// =====================================
+	// Compress pake gzip
 	var requestBody bytes.Buffer
 
 	if s.compressLogs {
@@ -83,9 +82,7 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 		requestBody.Write(jsonData)
 	}
 
-	// =====================================
-	// 4. SIAPKAN REQUEST HTTP
-	// =====================================
+	// Bikin HTTP request
 	req, err := http.NewRequest("POST", s.apiURL, &requestBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -94,14 +91,12 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", s.apiKey)
 
-	// beri tahu API kalau payload gzip
+	// Kasih tau server kalo pake gzip
 	if s.compressLogs {
 		req.Header.Set("Content-Encoding", "gzip")
 	}
 
-	// =====================================
-	// 5. KIRIM REQUEST
-	// =====================================
+	// Kirim request
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
@@ -110,9 +105,7 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 
 	body, _ := io.ReadAll(resp.Body)
 
-	// =====================================
-	// 6. HANDLE ERROR API
-	// =====================================
+	// Handle error dari API
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
 		if err := json.Unmarshal(body, &apiResp); err == nil {
@@ -121,9 +114,7 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 		return fmt.Errorf("[API ERROR] %d: %s", resp.StatusCode, string(body))
 	}
 
-	// =====================================
-	// 7. API SUCCESS RESPONSE
-	// =====================================
+	// Log kalo sukses
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Success {
 		log.Printf("Metrics + Logs sent successfully for agent: %s", apiResp.Agent)
