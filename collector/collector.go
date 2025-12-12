@@ -103,61 +103,57 @@ func CollectMetrics() (*models.Metric, error) {
 	return metric, nil
 }
 
-// collectSystemLogs kumpulin log sistem
+// collectSystemLogs collects system, error, and security logs
 func collectSystemLogs(osName string) models.LogsInfo {
 	logs := models.LogsInfo{}
-
 	switch osName {
 	case "windows":
+		// Windows logic is already good
 		logs.System = runPowerShell(`Get-EventLog -LogName System -Newest 50 | Out-String`)
-		logs.Error = runPowerShell(`Get-EventLog -LogName Application -Newest 30 | Out-String`)
+		// logs.Error removed
 		logs.Security = runPowerShell(`Get-EventLog -LogName Security -Newest 30 | Out-String`)
-
-	default:
-		// Detect if running in Docker (mounted host logs at /host/var/log)
-		isDocker := false
-		if _, err := os.Stat("/host/var/log"); err == nil {
-			isDocker = true
-		}
-
-		// System logs - syslog
-		syslogPath := "/var/log/syslog"
-		if isDocker {
-			syslogPath = "/host/var/log/syslog"
-		}
-		if _, err := os.Stat(syslogPath); err == nil {
-			logs.System = runCmd("tail", "-n", "100", syslogPath)
+	default: // Linux/Darwin
+		// Try Journalctl first
+		
+		// 1. System Logs
+		sysLog, err := runCmdWithErr("journalctl", "-k", "-b", "-n", "50", "--no-pager", "-o", "cat")
+		if err == nil && len(sysLog) > 10 {
+			logs.System = sysLog
 		} else {
-			// Fallback: try messages (RHEL/CentOS)
-			messagesPath := "/var/log/messages"
-			if isDocker {
-				messagesPath = "/host/var/log/messages"
+			// Fallback: Text files
+			paths := []string{
+				"/host/var/log/syslog", "/var/log/syslog",
+				"/host/var/log/messages", "/var/log/messages",
 			}
-			if _, err := os.Stat(messagesPath); err == nil {
-				logs.System = runCmd("tail", "-n", "100", messagesPath)
+			for _, path := range paths {
+				if _, err := os.Stat(path); err == nil {
+					logs.System = runCmd("tail", "-n", "50", path)
+					break
+				}
 			}
 		}
-
-		// Error logs - journalctl with priority error
-		if isDocker {
-			// In Docker, journalctl needs mounted journal
-			logs.Error = runCmd("journalctl", "--directory=/host/run/log/journal", "-p", "err", "-n", "50", "--no-pager")
+		// 3. Security Logs
+		secLog, err := runCmdWithErr("journalctl", "_COMM=sshd", "-n", "50", "--no-pager", "-o", "cat") 
+		if err == nil && len(secLog) > 10 {
+			logs.Security = secLog
 		} else {
-			logs.Error = runCmd("journalctl", "-p", "err", "-n", "50", "--no-pager")
-		}
-
-		// Security logs - recent journal entries
-		if isDocker {
-			logs.Security = runCmd("journalctl", "--directory=/host/run/log/journal", "-n", "100", "--no-pager")
-		} else {
-			logs.Security = runCmd("journalctl", "-n", "100", "--no-pager")
+			// Fallback: auth logs
+			paths := []string{
+				"/host/var/log/auth.log", "/var/log/auth.log",
+				"/host/var/log/secure", "/var/log/secure", // RHEL/CentOS
+			}
+			for _, path := range paths {
+				if _, err := os.Stat(path); err == nil {
+					logs.Security = runCmd("tail", "-n", "50", path)
+					break
+				}
+			}
 		}
 	}
-
 	return logs
 }
 
-// collectDockerContainers ambil list semua container
+// collectDockerContainers collects list of running containers
 func collectDockerContainers() []models.ContainerInfo {
 	containers := []models.ContainerInfo{}
 
@@ -202,19 +198,14 @@ func runPowerShell(cmd string) string {
 	return string(out)
 }
 
+// Helper that returns error so we know when to fallback
+func runCmdWithErr(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	return string(out), err
+}
+
 func runCmd(name string, args ...string) string {
 	out, _ := exec.Command(name, args...).CombinedOutput()
 	return string(out)
 }
 
-func readFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	// Limit to last 50KB to avoid huge payloads
-	if len(data) > 50000 {
-		data = data[len(data)-50000:]
-	}
-	return string(data)
-}

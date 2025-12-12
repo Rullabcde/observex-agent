@@ -2,21 +2,21 @@ package models
 
 import "time"
 
-// Info sistem operasi
+// SystemInfo holds OS details
 type SystemInfo struct {
 	OS     string `json:"os"`
 	Kernel string `json:"kernel"`
 	Arch   string `json:"arch"`
 }
 
-// Info CPU
+// CPUInfo holds CPU stats
 type CPUInfo struct {
 	Percent float64 `json:"percent"`
 	Model   string  `json:"model"`
 	Cores   int     `json:"cores"`
 }
 
-// Info Memory/RAM
+// MemoryInfo holds RAM stats
 type MemoryInfo struct {
 	Total     uint64  `json:"total"`
 	Available uint64  `json:"available"`
@@ -24,14 +24,14 @@ type MemoryInfo struct {
 	Percent   float64 `json:"percent"`
 }
 
-// Info Swap
+// SwapInfo holds Swap stats
 type SwapInfo struct {
 	Total   uint64  `json:"total"`
 	Used    uint64  `json:"used"`
 	Percent float64 `json:"percent"`
 }
 
-// Info Disk
+// DiskInfo holds Disk usage stats
 type DiskInfo struct {
 	Total      uint64  `json:"total"`
 	Free       uint64  `json:"free"`
@@ -41,27 +41,26 @@ type DiskInfo struct {
 	WriteBytes uint64  `json:"writeBytes"`
 }
 
-// Info Network
+// NetworkInfo holds Network I/O stats
 type NetworkInfo struct {
 	BytesSent uint64 `json:"bytesSent"`
 	BytesRecv uint64 `json:"bytesRecv"`
 }
 
-// Info Load Average (Linux only)
+// LoadInfo holds Load Average stats (Linux only)
 type LoadInfo struct {
 	Load1  float64 `json:"load1"`
 	Load5  float64 `json:"load5"`
 	Load15 float64 `json:"load15"`
 }
 
-// Info Logs
+// LogsInfo holds system logs
 type LogsInfo struct {
 	System   string `json:"system"`
-	Error    string `json:"error"`
 	Security string `json:"security"`
 }
 
-// Info Docker Container
+// ContainerInfo holds Docker container details
 type ContainerInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -71,7 +70,7 @@ type ContainerInfo struct {
 	Created int64  `json:"created"`
 }
 
-// Metric utama yang dikumpulkan collector
+// Metric is the main metric data structure collection
 type Metric struct {
 	Timestamp time.Time   `json:"timestamp"`
 	Hostname  string      `json:"hostname"`
@@ -88,7 +87,7 @@ type Metric struct {
 	Containers []ContainerInfo `json:"containers,omitempty"`
 }
 
-// Payload yang dikirim ke API (flat structure)
+// MetricPayload is the flat payload sent to API
 type MetricPayload struct {
 	CPU         float64   `json:"cpu"`
 	CPUModel    string    `json:"cpuModel"`
@@ -118,7 +117,7 @@ type MetricPayload struct {
 	Containers  []ContainerInfo `json:"containers,omitempty"`
 }
 
-// ToPayload convert Metric ke MetricPayload
+// ToPayload converts Metric to MetricPayload
 func (m *Metric) ToPayload() *MetricPayload {
 	return &MetricPayload{
 		CPU:         m.CPU.Percent,
