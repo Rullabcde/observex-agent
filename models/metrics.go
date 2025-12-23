@@ -68,6 +68,7 @@ type ContainerInfo struct {
 	Status  string `json:"status"`
 	State   string `json:"state"`
 	Created int64  `json:"created"`
+	Logs    string `json:"logs,omitempty"`
 }
 
 // Metric is the main metric data structure collection

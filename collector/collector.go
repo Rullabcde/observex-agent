@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -180,6 +182,8 @@ func collectDockerContainers() []models.ContainerInfo {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 
+		logs := collectContainerLogs(cli, c.ID)
+
 		containers = append(containers, models.ContainerInfo{
 			ID:      c.ID[:12], // Short ID
 			Name:    name,
@@ -187,10 +191,34 @@ func collectDockerContainers() []models.ContainerInfo {
 			Status:  c.Status,
 			State:   c.State,
 			Created: c.Created,
+			Logs:    logs,
 		})
 	}
 
 	return containers
+}
+
+func collectContainerLogs(cli *client.Client, containerID string) string {
+    ctx := context.Background()
+    
+    options := container.LogsOptions{
+        ShowStdout: true,
+        ShowStderr: true,
+        Tail:       "100",
+        Timestamps: true,
+    }
+    
+    reader, err := cli.ContainerLogs(ctx, containerID, options)
+    if err != nil {
+        return ""
+    }
+    defer reader.Close()
+    
+    // Read logs (handle multiplexed stream)
+    var buf bytes.Buffer
+    _, _ = stdcopy.StdCopy(&buf, &buf, reader)
+    
+    return buf.String()
 }
 
 func runPowerShell(cmd string) string {
