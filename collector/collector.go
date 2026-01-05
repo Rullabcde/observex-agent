@@ -3,6 +3,8 @@ package collector
 import (
 	"bytes"
 	"context"
+	"io"       // Added for getPublicIP
+	"net/http" // Added for getPublicIP
 	"os"
 	"os/exec"
 	"runtime"
@@ -29,6 +31,9 @@ func CollectMetrics() (*models.Metric, error) {
 
 	hostname, _ := os.Hostname()
 	metric.Hostname = hostname
+
+    // Add Public IP
+    metric.PublicIP = getPublicIP()
 
 	hostInfo, _ := host.Info()
 	metric.System = models.SystemInfo{
@@ -236,4 +241,17 @@ func runCmd(name string, args ...string) string {
 	out, _ := exec.Command(name, args...).CombinedOutput()
 	return string(out)
 }
+
+// Helper function to get public IP
+func getPublicIP() string {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("https://api.ipify.org")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	ip, _ := io.ReadAll(resp.Body)
+	return string(ip)
+}
+
 

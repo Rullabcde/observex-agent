@@ -75,6 +75,7 @@ type ContainerInfo struct {
 type Metric struct {
 	Timestamp time.Time   `json:"timestamp"`
 	Hostname  string      `json:"hostname"`
+	PublicIP  string      `json:"publicIp"` // Added PublicIP
 	OS        string      `json:"os"`
 	System    SystemInfo  `json:"system"`
 	Uptime    uint64      `json:"uptime"`
@@ -90,6 +91,9 @@ type Metric struct {
 
 // MetricPayload is the flat payload sent to API
 type MetricPayload struct {
+	Version     string    `json:"version"` // Added Version
+	PublicIP    string    `json:"publicIp"` // Added PublicIP
+	Timestamp   int64     `json:"timestamp"` // Added Timestamp
 	CPU         float64   `json:"cpu"`
 	CPUModel    string    `json:"cpuModel"`
 	CPUCores    int       `json:"cpuCores"`
@@ -121,6 +125,9 @@ type MetricPayload struct {
 // ToPayload converts Metric to MetricPayload
 func (m *Metric) ToPayload() *MetricPayload {
 	return &MetricPayload{
+		Version:     "v1.1.0",
+		PublicIP:    m.PublicIP,
+		Timestamp:   m.Timestamp.UnixMilli(),
 		CPU:         m.CPU.Percent,
 		CPUModel:    m.CPU.Model,
 		CPUCores:    m.CPU.Cores,
