@@ -3,39 +3,40 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"time"
 
+	"observex-agent/config"
 	"observex-agent/models"
 )
 
-// Sender sends metrics to API
+// Sends metrics to API
 type Sender struct {
 	apiURL       string
 	apiKey       string
 	client       *http.Client
 	maxLogSize   int
 	compressLogs bool
+	agentVersion string
 }
 
-// NewSender creates a new sender instance
-func NewSender(apiURL, apiKey string) *Sender {
+func NewSender(cfg *config.Config, version string) *Sender {
 	return &Sender{
-		apiURL:       apiURL,
-		apiKey:       apiKey,
-		maxLogSize:   400_000, // 400 KB limit
-		compressLogs: true,   // enable gzip
+		apiURL:       cfg.APIURL,
+		apiKey:       cfg.APIKey,
+		maxLogSize:   cfg.MaxLogSize,
+		compressLogs: true,
+		agentVersion: version,
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: cfg.HTTPTimeout,
 		},
 	}
 }
 
-// APIResponse defines server response
 type APIResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -44,8 +45,8 @@ type APIResponse struct {
 	Code    string `json:"code,omitempty"`
 }
 
-// SendMetrics sends metrics to the API server
-func (s *Sender) SendMetrics(metric *models.Metric) error {
+// SendMetrics sends metrics with context
+func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 
 	// Truncate large logs
 	if len(metric.Logs.System) > s.maxLogSize {
@@ -56,54 +57,53 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 		metric.Logs.Security = metric.Logs.Security[:s.maxLogSize] + "\n[TRUNCATED]"
 	}
 
-	// Convert to payload format
-	payload := metric.ToPayload()
+	// Prepare payload
+	payload := metric.ToPayload(s.agentVersion)
 
-	// Marshal to JSON
+	// Marshal JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		return fmt.Errorf("marshal failed: %w", err)
 	}
 
-	// Compress with gzip
+	// Gzip compression
 	var requestBody bytes.Buffer
 
 	if s.compressLogs {
 		gzipWriter := gzip.NewWriter(&requestBody)
-		_, err := gzipWriter.Write(jsonData)
-		gzipWriter.Close()
-
-		if err != nil {
-			return fmt.Errorf("failed to gzip payload: %w", err)
+		if _, err := gzipWriter.Write(jsonData); err != nil {
+			return fmt.Errorf("gzip write failed: %w", err)
+		}
+		if err := gzipWriter.Close(); err != nil {
+			return fmt.Errorf("gzip close failed: %w", err)
 		}
 	} else {
 		requestBody.Write(jsonData)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", s.apiURL, &requestBody)
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "POST", s.apiURL, &requestBody)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("req creation failed: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", s.apiKey)
 
-	// Set gzip header if enabled
 	if s.compressLogs {
 		req.Header.Set("Content-Encoding", "gzip")
 	}
 
-	// Send request
+	// Execute request
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 
-	// Handle API error
+	// Handle error response
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
 		if err := json.Unmarshal(body, &apiResp); err == nil {
@@ -112,10 +112,10 @@ func (s *Sender) SendMetrics(metric *models.Metric) error {
 		return fmt.Errorf("[API ERROR] %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Log success
+	// Success log
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Success {
-		log.Printf("Metrics + Logs sent successfully for agent: %s", apiResp.Agent)
+		log.Printf("Metrics sent for agent: %s", apiResp.Agent)
 	}
 
 	return nil

@@ -3,8 +3,9 @@ package collector
 import (
 	"bytes"
 	"context"
-	"io"       // Added for getPublicIP
-	"net/http" // Added for getPublicIP
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -24,153 +25,169 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
+// CollectMetrics gathers all system metrics
 func CollectMetrics() (*models.Metric, error) {
-	metric := &models.Metric{Timestamp: time.Now()}
+	timestamp := time.Now()
 	currentOS := runtime.GOOS
-	metric.OS = currentOS
 
-	hostname, _ := os.Hostname()
-	metric.Hostname = hostname
-
-    // Add Public IP
-    metric.PublicIP = getPublicIP()
-
-	hostInfo, _ := host.Info()
-	metric.System = models.SystemInfo{
-		OS:     hostInfo.OS + " " + hostInfo.Platform + " " + hostInfo.PlatformVersion,
-		Kernel: hostInfo.KernelVersion,
-		Arch:   hostInfo.KernelArch,
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
 	}
-	metric.Uptime = hostInfo.Uptime
+
+	metric := &models.Metric{
+		Timestamp: timestamp,
+		OS:        currentOS,
+		Hostname:  hostname,
+		PublicIP:  getPublicIP(),
+	}
+
+	// System Info
+	if hostInfo, err := host.Info(); err == nil {
+		metric.System = models.SystemInfo{
+			OS:     hostInfo.OS + " " + hostInfo.Platform + " " + hostInfo.PlatformVersion,
+			Kernel: hostInfo.KernelVersion,
+			Arch:   hostInfo.KernelArch,
+		}
+		metric.Uptime = hostInfo.Uptime
+	}
 
 	// CPU
-	percent, _ := cpu.Percent(time.Second, false)
-	cpuCount, _ := cpu.Counts(true)
-	cpuInfo, _ := cpu.Info()
-
-	model := ""
-	if len(cpuInfo) > 0 {
-		model = cpuInfo[0].ModelName
+	if percent, err := cpu.Percent(time.Second, false); err == nil && len(percent) > 0 {
+		metric.CPU.Percent = percent[0]
 	}
-
-	cpuPercent := 0.0
-	if len(percent) > 0 {
-		cpuPercent = percent[0]
+	if count, err := cpu.Counts(true); err == nil {
+		metric.CPU.Cores = count
 	}
-	metric.CPU = models.CPUInfo{Percent: cpuPercent, Cores: cpuCount, Model: model}
+	if info, err := cpu.Info(); err == nil && len(info) > 0 {
+		metric.CPU.Model = info[0].ModelName
+	}
 
 	// Memory
-	memInfo, _ := mem.VirtualMemory()
-	metric.Memory = models.MemoryInfo{
-		Total: memInfo.Total, Available: memInfo.Available,
-		Used: memInfo.Used, Percent: memInfo.UsedPercent,
+	if memInfo, err := mem.VirtualMemory(); err == nil {
+		metric.Memory = models.MemoryInfo{
+			Total:     memInfo.Total,
+			Available: memInfo.Available,
+			Used:      memInfo.Used,
+			Percent:   memInfo.UsedPercent,
+		}
 	}
 
 	// Swap
-	swapInfo, _ := mem.SwapMemory()
-	metric.Swap = models.SwapInfo{Total: swapInfo.Total, Used: swapInfo.Used, Percent: swapInfo.UsedPercent}
+	if swapInfo, err := mem.SwapMemory(); err == nil {
+		metric.Swap = models.SwapInfo{
+			Total:   swapInfo.Total,
+			Used:    swapInfo.Used,
+			Percent: swapInfo.UsedPercent,
+		}
+	}
 
 	// Disk
 	diskPath := "/"
 	if currentOS == "windows" {
 		diskPath = "C:\\"
 	}
-	diskUsage, _ := disk.Usage(diskPath)
-	ioCounters, _ := disk.IOCounters()
-	var readBytes, writeBytes uint64
-	for _, counter := range ioCounters {
-		readBytes += counter.ReadBytes
-		writeBytes += counter.WriteBytes
-	}
-	metric.Disk = models.DiskInfo{
-		Total: diskUsage.Total, Free: diskUsage.Free, Used: diskUsage.Used,
-		Percent: diskUsage.UsedPercent, ReadBytes: readBytes, WriteBytes: writeBytes,
+	if diskUsage, err := disk.Usage(diskPath); err == nil {
+		metric.Disk.Total = diskUsage.Total
+		metric.Disk.Free = diskUsage.Free
+		metric.Disk.Used = diskUsage.Used
+		metric.Disk.Percent = diskUsage.UsedPercent
 	}
 
-	// Network
-	netIO, _ := net.IOCounters(false)
-	if len(netIO) > 0 {
-		metric.Network = models.NetworkInfo{BytesSent: netIO[0].BytesSent, BytesRecv: netIO[0].BytesRecv}
-	}
-
-	// Load Average
-	if currentOS != "windows" {
-		loadAvg, _ := load.Avg()
-		if loadAvg != nil {
-			metric.Load = models.LoadInfo{Load1: loadAvg.Load1, Load5: loadAvg.Load5, Load15: loadAvg.Load15}
+	if ioCounters, err := disk.IOCounters(); err == nil {
+		for _, counter := range ioCounters {
+			metric.Disk.ReadBytes += counter.ReadBytes
+			metric.Disk.WriteBytes += counter.WriteBytes
 		}
 	}
 
-	// LOGS - Always read host logs (native or mounted)
-	metric.Logs = collectSystemLogs(currentOS)
+	// Network
+	if netIO, err := net.IOCounters(false); err == nil && len(netIO) > 0 {
+		metric.Network = models.NetworkInfo{
+			BytesSent: netIO[0].BytesSent,
+			BytesRecv: netIO[0].BytesRecv,
+		}
+	}
 
-	// CONTAINERS - Collect Docker container list if docker.sock available
+	// Load Average (Unix)
+	if currentOS != "windows" {
+		if loadAvg, err := load.Avg(); err == nil && loadAvg != nil {
+			metric.Load = models.LoadInfo{
+				Load1:  loadAvg.Load1,
+				Load5:  loadAvg.Load5,
+				Load15: loadAvg.Load15,
+			}
+		}
+	}
+
+	// Logs & Containers
+	metric.Logs = collectSystemLogs(currentOS)
 	metric.Containers = collectDockerContainers()
 
 	return metric, nil
 }
 
-// collectSystemLogs collects system, error, and security logs
+// Collect system logs
 func collectSystemLogs(osName string) models.LogsInfo {
 	logs := models.LogsInfo{}
-	switch osName {
-	case "windows":
-		// Windows logic is already good
+	
+	if osName == "windows" {
 		logs.System = runPowerShell(`Get-EventLog -LogName System -Newest 50 | Out-String`)
-		// logs.Error removed
 		logs.Security = runPowerShell(`Get-EventLog -LogName Security -Newest 30 | Out-String`)
-	default: // Linux/Darwin
-		// Try Journalctl first
-		
-		// 1. System Logs
-		sysLog, err := runCmdWithErr("journalctl", "-k", "-b", "-n", "50", "--no-pager", "-o", "cat")
-		if err == nil && len(sysLog) > 10 {
-			logs.System = sysLog
-		} else {
-			// Fallback: Text files
-			paths := []string{
-				"/host/var/log/syslog", "/var/log/syslog",
-				"/host/var/log/messages", "/var/log/messages",
-			}
-			for _, path := range paths {
-				if _, err := os.Stat(path); err == nil {
-					logs.System = runCmd("tail", "-n", "50", path)
-					break
-				}
-			}
+		return logs
+	}
+
+	// Linux/Darwin
+	
+	// System Logs
+	sysLog, err := runCmdWithErr("journalctl", "-k", "-b", "-n", "50", "--no-pager", "-o", "cat")
+	if err == nil && len(sysLog) > 10 {
+		logs.System = sysLog
+	} else {
+		paths := []string{
+			"/host/var/log/syslog", "/var/log/syslog",
+			"/host/var/log/messages", "/var/log/messages",
 		}
-		// 3. Security Logs
-		secLog, err := runCmdWithErr("journalctl", "_COMM=sshd", "-n", "50", "--no-pager", "-o", "cat") 
-		if err == nil && len(secLog) > 10 {
-			logs.Security = secLog
-		} else {
-			// Fallback: auth logs
-			paths := []string{
-				"/host/var/log/auth.log", "/var/log/auth.log",
-				"/host/var/log/secure", "/var/log/secure", // RHEL/CentOS
-			}
-			for _, path := range paths {
-				if _, err := os.Stat(path); err == nil {
-					logs.Security = runCmd("tail", "-n", "50", path)
-					break
-				}
+		for _, path := range paths {
+			if _, err := os.Stat(path); err == nil {
+				logs.System = runCmd("tail", "-n", "50", path)
+				break
 			}
 		}
 	}
+
+	// Security Logs
+	secLog, err := runCmdWithErr("journalctl", "_COMM=sshd", "-n", "50", "--no-pager", "-o", "cat") 
+	if err == nil && len(secLog) > 10 {
+		logs.Security = secLog
+	} else {
+		paths := []string{
+			"/host/var/log/auth.log", "/var/log/auth.log",
+			"/host/var/log/secure", "/var/log/secure",
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(path); err == nil {
+				logs.Security = runCmd("tail", "-n", "50", path)
+				break
+			}
+		}
+	}
+	
 	return logs
 }
 
-// collectDockerContainers collects list of running containers
+// Collect docker containers
 func collectDockerContainers() []models.ContainerInfo {
 	containers := []models.ContainerInfo{}
 
-	// Check if docker.sock is available
+	// Skip if no docker socket
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
-		return containers // No Docker socket, return empty
+		return containers
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
+		log.Printf("Docker client error: %v", err)
 		return containers
 	}
 	defer cli.Close()
@@ -178,6 +195,7 @@ func collectDockerContainers() []models.ContainerInfo {
 	ctx := context.Background()
 	containerList, err := cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
+		log.Printf("Docker list error: %v", err)
 		return containers
 	}
 
@@ -187,22 +205,21 @@ func collectDockerContainers() []models.ContainerInfo {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 
-		logs := collectContainerLogs(cli, c.ID)
-
 		containers = append(containers, models.ContainerInfo{
-			ID:      c.ID[:12], // Short ID
+			ID:      c.ID[:12],
 			Name:    name,
 			Image:   c.Image,
 			Status:  c.Status,
 			State:   c.State,
 			Created: c.Created,
-			Logs:    logs,
+			Logs:    collectContainerLogs(cli, c.ID),
 		})
 	}
 
 	return containers
 }
 
+// Collect container logs
 func collectContainerLogs(cli *client.Client, containerID string) string {
     ctx := context.Background()
     
@@ -210,7 +227,6 @@ func collectContainerLogs(cli *client.Client, containerID string) string {
         ShowStdout: true,
         ShowStderr: true,
         Tail:       "100",
-        Timestamps: true,
     }
     
     reader, err := cli.ContainerLogs(ctx, containerID, options)
@@ -219,7 +235,6 @@ func collectContainerLogs(cli *client.Client, containerID string) string {
     }
     defer reader.Close()
     
-    // Read logs (handle multiplexed stream)
     var buf bytes.Buffer
     _, _ = stdcopy.StdCopy(&buf, &buf, reader)
     
@@ -231,7 +246,6 @@ func runPowerShell(cmd string) string {
 	return string(out)
 }
 
-// Helper that returns error so we know when to fallback
 func runCmdWithErr(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	return string(out), err
@@ -242,7 +256,7 @@ func runCmd(name string, args ...string) string {
 	return string(out)
 }
 
-// Helper function to get public IP
+// Get public IP with timeout
 func getPublicIP() string {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get("https://api.ipify.org")

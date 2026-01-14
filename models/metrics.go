@@ -2,21 +2,18 @@ package models
 
 import "time"
 
-// SystemInfo holds OS details
 type SystemInfo struct {
 	OS     string `json:"os"`
 	Kernel string `json:"kernel"`
 	Arch   string `json:"arch"`
 }
 
-// CPUInfo holds CPU stats
 type CPUInfo struct {
 	Percent float64 `json:"percent"`
 	Model   string  `json:"model"`
 	Cores   int     `json:"cores"`
 }
 
-// MemoryInfo holds RAM stats
 type MemoryInfo struct {
 	Total     uint64  `json:"total"`
 	Available uint64  `json:"available"`
@@ -24,14 +21,12 @@ type MemoryInfo struct {
 	Percent   float64 `json:"percent"`
 }
 
-// SwapInfo holds Swap stats
 type SwapInfo struct {
 	Total   uint64  `json:"total"`
 	Used    uint64  `json:"used"`
 	Percent float64 `json:"percent"`
 }
 
-// DiskInfo holds Disk usage stats
 type DiskInfo struct {
 	Total      uint64  `json:"total"`
 	Free       uint64  `json:"free"`
@@ -41,26 +36,22 @@ type DiskInfo struct {
 	WriteBytes uint64  `json:"writeBytes"`
 }
 
-// NetworkInfo holds Network I/O stats
 type NetworkInfo struct {
 	BytesSent uint64 `json:"bytesSent"`
 	BytesRecv uint64 `json:"bytesRecv"`
 }
 
-// LoadInfo holds Load Average stats (Linux only)
 type LoadInfo struct {
 	Load1  float64 `json:"load1"`
 	Load5  float64 `json:"load5"`
 	Load15 float64 `json:"load15"`
 }
 
-// LogsInfo holds system logs
 type LogsInfo struct {
 	System   string `json:"system"`
 	Security string `json:"security"`
 }
 
-// ContainerInfo holds Docker container details
 type ContainerInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -71,11 +62,10 @@ type ContainerInfo struct {
 	Logs    string `json:"logs,omitempty"`
 }
 
-// Metric is the main metric data structure collection
 type Metric struct {
 	Timestamp time.Time   `json:"timestamp"`
 	Hostname  string      `json:"hostname"`
-	PublicIP  string      `json:"publicIp"` // Added PublicIP
+	PublicIP  string      `json:"publicIp"`
 	OS        string      `json:"os"`
 	System    SystemInfo  `json:"system"`
 	Uptime    uint64      `json:"uptime"`
@@ -84,16 +74,15 @@ type Metric struct {
 	Swap      SwapInfo    `json:"swap"`
 	Disk      DiskInfo    `json:"disk"`
 	Network   NetworkInfo `json:"network"`
-	Load       LoadInfo        `json:"load"`
-	Logs       LogsInfo        `json:"logs"`
+	Load      LoadInfo    `json:"load"`
+	Logs      LogsInfo    `json:"logs"`
 	Containers []ContainerInfo `json:"containers,omitempty"`
 }
 
-// MetricPayload is the flat payload sent to API
 type MetricPayload struct {
-	Version     string    `json:"version"` // Added Version
-	PublicIP    string    `json:"publicIp"` // Added PublicIP
-	Timestamp   int64     `json:"timestamp"` // Added Timestamp
+	Version     string    `json:"version"`
+	PublicIP    string    `json:"publicIp"`
+	Timestamp   int64     `json:"timestamp"`
 	CPU         float64   `json:"cpu"`
 	CPUModel    string    `json:"cpuModel"`
 	CPUCores    int       `json:"cpuCores"`
@@ -116,16 +105,15 @@ type MetricPayload struct {
 	Uptime      float64   `json:"uptime"`
 	Hostname    string    `json:"hostname"`
 	OS          string    `json:"os"`
-	Kernel      string          `json:"kernel"`
-	Arch        string          `json:"arch"`
-	Logs        *LogsInfo       `json:"logs,omitempty"`
+	Kernel      string    `json:"kernel"`
+	Arch        string    `json:"arch"`
+	Logs        *LogsInfo `json:"logs,omitempty"`
 	Containers  []ContainerInfo `json:"containers,omitempty"`
 }
 
-// ToPayload converts Metric to MetricPayload
-func (m *Metric) ToPayload() *MetricPayload {
+func (m *Metric) ToPayload(version string) *MetricPayload {
 	return &MetricPayload{
-		Version:     "v1.1.0",
+		Version:     version,
 		PublicIP:    m.PublicIP,
 		Timestamp:   m.Timestamp.UnixMilli(),
 		CPU:         m.CPU.Percent,

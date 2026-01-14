@@ -46,7 +46,3 @@ debug/
 *.temp
 tmp/
 temp/
-
-# Project specific
-push.txt
-docs.txt
