@@ -45,10 +45,8 @@ type APIResponse struct {
 	Code    string `json:"code,omitempty"`
 }
 
-// SendMetrics sends metrics with context
 func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 
-	// Truncate large logs
 	if len(metric.Logs.System) > s.maxLogSize {
 		metric.Logs.System = metric.Logs.System[:s.maxLogSize] + "\n[TRUNCATED]"
 	}
@@ -57,7 +55,6 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 		metric.Logs.Security = metric.Logs.Security[:s.maxLogSize] + "\n[TRUNCATED]"
 	}
 
-	// Prepare payload
 	payload := metric.ToPayload(s.agentVersion)
 
 	// Marshal JSON
@@ -81,7 +78,6 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 		requestBody.Write(jsonData)
 	}
 
-	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "POST", s.apiURL, &requestBody)
 	if err != nil {
 		return fmt.Errorf("req creation failed: %w", err)
@@ -94,7 +90,6 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 		req.Header.Set("Content-Encoding", "gzip")
 	}
 
-	// Execute request
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -103,7 +98,7 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 
 	body, _ := io.ReadAll(resp.Body)
 
-	// Handle error response
+	// Error response
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
 		if err := json.Unmarshal(body, &apiResp); err == nil {
