@@ -14,7 +14,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /agent main.go
 RUN upx --best --lzma /agent
-RUN echo "agent:x:1001:1001:ObserveX Agent:/nonexistent:/sbin/nologin" > /etc/passwd.scratch
+RUN echo "root:x:0:0:root:/root:/bin/sh" > /etc/passwd.scratch && \
+    echo "agent:x:1001:1001:ObserveX Agent:/nonexistent:/sbin/nologin" >> /etc/passwd.scratch
 
 FROM scratch
 WORKDIR /
