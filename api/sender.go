@@ -14,7 +14,6 @@ import (
 	"observex-agent/models"
 )
 
-// Sends metrics to API
 type Sender struct {
 	apiURL       string
 	apiKey       string
