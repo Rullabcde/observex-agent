@@ -14,14 +14,19 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /agent main.go
 RUN upx --best --lzma /agent
+
+# Create minimal user and group files
 RUN echo "root:x:0:0:root:/root:/bin/sh" > /etc/passwd.scratch && \
-    echo "agent:x:1001:1001:ObserveX Agent:/nonexistent:/sbin/nologin" >> /etc/passwd.scratch
+    echo "agent:x:1001:1001:ObserveX Agent:/nonexistent:/sbin/nologin" >> /etc/passwd.scratch && \
+    echo "root:x:0:" > /etc/group.scratch && \
+    echo "agent:x:1001:" >> /etc/group.scratch
 
 FROM scratch
 WORKDIR /
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/passwd.scratch /etc/passwd
+COPY --from=builder /etc/group.scratch /etc/group
 COPY --from=builder /agent /agent
 
 USER 1001
