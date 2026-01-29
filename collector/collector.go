@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,12 +18,14 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	probing "github.com/prometheus-community/pro-bing"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // CollectMetrics gathers all system metrics
@@ -123,6 +126,10 @@ func CollectMetrics() (*models.Metric, error) {
 	// Logs & Containers
 	metric.Logs = collectSystemLogs(currentOS)
 	metric.Containers = collectDockerContainers()
+
+	// Latency & Processes
+	metric.Latency = collectLatency()
+	metric.Processes = collectTopProcesses()
 
 	return metric, nil
 }
@@ -266,6 +273,125 @@ func getPublicIP() string {
 	defer resp.Body.Close()
 	ip, _ := io.ReadAll(resp.Body)
 	return string(ip)
+}
+
+// collectLatency pings DNS servers and measures RTT
+func collectLatency() []models.LatencyInfo {
+	targets := []string{"8.8.8.8", "1.1.1.1"}
+	results := make([]models.LatencyInfo, 0, len(targets))
+
+	for _, target := range targets {
+		info := models.LatencyInfo{
+			Target:  target,
+			Success: false,
+		}
+
+		pinger, err := probing.NewPinger(target)
+		if err != nil {
+			results = append(results, info)
+			continue
+		}
+
+		pinger.Count = 3
+		pinger.Timeout = 3 * time.Second
+		pinger.SetPrivileged(true)
+
+		if err := pinger.Run(); err != nil {
+			pinger.SetPrivileged(false)
+			if err := pinger.Run(); err != nil {
+				results = append(results, info)
+				continue
+			}
+		}
+
+		stats := pinger.Statistics()
+		if stats.PacketsRecv > 0 {
+			info.Latency = float64(stats.AvgRtt.Microseconds()) / 1000.0 // Convert to ms
+			info.Success = true
+		}
+
+		results = append(results, info)
+	}
+
+	return results
+}
+
+// collectTopProcesses gets top 10 processes by CPU and memory usage
+func collectTopProcesses() []models.ProcessInfo {
+	procs, err := process.Processes()
+	if err != nil {
+		log.Printf("Failed to get processes: %v", err)
+		return nil
+	}
+
+	type procData struct {
+		pid     int32
+		name    string
+		cpu     float64
+		memory  float32
+		command string
+	}
+
+	var procList []procData
+
+	for _, p := range procs {
+		name, err := p.Name()
+		if err != nil {
+			continue
+		}
+
+		cpu, err := p.CPUPercent()
+		if err != nil {
+			cpu = 0
+		}
+
+		mem, err := p.MemoryPercent()
+		if err != nil {
+			mem = 0
+		}
+
+		cmdline, _ := p.Cmdline()
+		if cmdline == "" {
+			cmdline = name
+		}
+
+		if len(cmdline) > 200 {
+			cmdline = cmdline[:200] + "..."
+		}
+
+		procList = append(procList, procData{
+			pid:     p.Pid,
+			name:    name,
+			cpu:     cpu,
+			memory:  mem,
+			command: cmdline,
+		})
+	}
+
+	sort.Slice(procList, func(i, j int) bool {
+		scoreI := procList[i].cpu + float64(procList[i].memory)
+		scoreJ := procList[j].cpu + float64(procList[j].memory)
+		return scoreI > scoreJ
+	})
+
+	// Get top 10
+	limit := 10
+	if len(procList) < limit {
+		limit = len(procList)
+	}
+
+	results := make([]models.ProcessInfo, 0, limit)
+	for _, p := range procList[:limit] {
+		results = append(results, models.ProcessInfo{
+			PID:     int(p.pid),
+			Name:    p.name,
+			CPU:     p.cpu,
+			Memory:  float64(p.memory),
+			Command: p.command,
+		})
+	}
+
+	return results
 }
 
 

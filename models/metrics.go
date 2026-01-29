@@ -47,6 +47,19 @@ type LoadInfo struct {
 	Load15 float64 `json:"load15"`
 }
 
+type LatencyInfo struct {
+    Target   string  `json:"target"`
+    Latency  float64 `json:"latency"`
+    Success  bool    `json:"success"`
+}
+type ProcessInfo struct {
+    PID     int     `json:"pid"`
+    Name    string  `json:"name"`
+    CPU     float64 `json:"cpu"`
+    Memory  float64 `json:"memory"`
+    Command string  `json:"command"`
+}
+
 type LogsInfo struct {
 	System   string `json:"system"`
 	Security string `json:"security"`
@@ -77,6 +90,8 @@ type Metric struct {
 	Load      LoadInfo    `json:"load"`
 	Logs      LogsInfo    `json:"logs"`
 	Containers []ContainerInfo `json:"containers,omitempty"`
+	Latency   []LatencyInfo `json:"latency,omitempty"`
+	Processes []ProcessInfo `json:"processes,omitempty"`
 }
 
 type MetricPayload struct {
@@ -109,6 +124,8 @@ type MetricPayload struct {
 	Arch        string    `json:"arch"`
 	Logs        *LogsInfo `json:"logs,omitempty"`
 	Containers  []ContainerInfo `json:"containers,omitempty"`
+	Latency   []LatencyInfo `json:"latency,omitempty"`
+	Processes []ProcessInfo `json:"processes,omitempty"`
 }
 
 func (m *Metric) ToPayload(version string) *MetricPayload {
@@ -142,5 +159,7 @@ func (m *Metric) ToPayload(version string) *MetricPayload {
 		Arch:       m.System.Arch,
 		Logs:       &m.Logs,
 		Containers: m.Containers,
+		Latency:    m.Latency,
+		Processes:  m.Processes,
 	}
 }
