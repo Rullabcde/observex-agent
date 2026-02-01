@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"observex-agent/config"
 	"observex-agent/models"
@@ -36,15 +37,21 @@ func NewSender(cfg *config.Config, version string) *Sender {
 	}
 }
 
-type APIResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Agent   string `json:"agent"`
-	Error   string `json:"error,omitempty"`
-	Code    string `json:"code,omitempty"`
+type APIConfig struct {
+	Interval int `json:"interval"`
 }
 
-func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
+type APIResponse struct {
+	Success bool      `json:"success"`
+	Message string    `json:"message"`
+	Agent   string    `json:"agent"`
+	Config  APIConfig `json:"config"`
+	Error   string    `json:"error,omitempty"`
+	Code    string    `json:"code,omitempty"`
+}
+
+// SendMetrics sends metrics to the API and returns the new polling interval if provided.
+func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.Duration, error) {
 
 	if len(metric.Logs.System) > s.maxLogSize {
 		metric.Logs.System = metric.Logs.System[:s.maxLogSize] + "\n[TRUNCATED]"
@@ -59,7 +66,7 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 	// Marshal JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal failed: %w", err)
+		return 0, fmt.Errorf("marshal failed: %w", err)
 	}
 
 	// Gzip compression
@@ -68,10 +75,10 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 	if s.compressLogs {
 		gzipWriter := gzip.NewWriter(&requestBody)
 		if _, err := gzipWriter.Write(jsonData); err != nil {
-			return fmt.Errorf("gzip write failed: %w", err)
+			return 0, fmt.Errorf("gzip write failed: %w", err)
 		}
 		if err := gzipWriter.Close(); err != nil {
-			return fmt.Errorf("gzip close failed: %w", err)
+			return 0, fmt.Errorf("gzip close failed: %w", err)
 		}
 	} else {
 		requestBody.Write(jsonData)
@@ -79,7 +86,7 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", s.apiURL, &requestBody)
 	if err != nil {
-		return fmt.Errorf("req creation failed: %w", err)
+		return 0, fmt.Errorf("req creation failed: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -91,7 +98,7 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return 0, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -101,16 +108,19 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) error {
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
 		if err := json.Unmarshal(body, &apiResp); err == nil {
-			return fmt.Errorf("[API ERROR] %d: %s (%s)", resp.StatusCode, apiResp.Error, apiResp.Code)
+			return 0, fmt.Errorf("[API ERROR] %d: %s (%s)", resp.StatusCode, apiResp.Error, apiResp.Code)
 		}
-		return fmt.Errorf("[API ERROR] %d: %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("[API ERROR] %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Success log
+	// Success: parse response for config
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Success {
 		log.Printf("Metrics sent for agent: %s", apiResp.Agent)
+		if apiResp.Config.Interval > 0 {
+			return time.Duration(apiResp.Config.Interval) * time.Second, nil
+		}
 	}
 
-	return nil
+	return 0, nil
 }

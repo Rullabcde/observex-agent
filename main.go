@@ -61,28 +61,43 @@ func runCollector(ctx context.Context, sender *api.Sender, interval time.Duratio
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	currentInterval := interval
+
 	// Send immediately
-	sendMetrics(ctx, sender)
+	newInterval := sendMetrics(ctx, sender)
+	if newInterval > 0 && newInterval != currentInterval {
+		log.Printf("Interval updated: %v -> %v", currentInterval, newInterval)
+		currentInterval = newInterval
+		ticker.Reset(currentInterval)
+	}
 
 	for {
 		select {
 		case <-ticker.C:
-			sendMetrics(ctx, sender)
+			newInterval := sendMetrics(ctx, sender)
+			if newInterval > 0 && newInterval != currentInterval {
+				log.Printf("Interval updated: %v -> %v", currentInterval, newInterval)
+				currentInterval = newInterval
+				ticker.Reset(currentInterval)
+			}
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-// sendMetrics invoke collection and send
-func sendMetrics(ctx context.Context, sender *api.Sender) {
+// sendMetrics invoke collection and send, returns new interval from server
+func sendMetrics(ctx context.Context, sender *api.Sender) time.Duration {
 	metric, err := collector.CollectMetrics()
 	if err != nil {
 		log.Printf("Collection failed: %v", err)
-		return
+		return 0
 	}
 
-	if err := sender.SendMetrics(ctx, metric); err != nil {
+	newInterval, err := sender.SendMetrics(ctx, metric)
+	if err != nil {
 		log.Printf("Send failed: %v", err)
+		return 0
 	}
+	return newInterval
 }
