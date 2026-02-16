@@ -2,12 +2,15 @@ package collector
 
 import (
 	"bufio"
+	"context"
 	"log"
 	"os/exec"
 	"runtime"
 	"strings"
 
 	"observex-agent/models"
+
+	"github.com/coreos/go-systemd/v22/dbus"
 )
 
 // collectServices detects system services based on the OS.
@@ -25,7 +28,7 @@ func collectServices(currentOS string) []models.ServiceInfo {
 	}
 }
 
-// collectLinuxServices uses systemctl to list services.
+// collectLinuxServices uses systemctl (via D-Bus) to list services.
 // Falls back to /etc/init.d/ scanning for non-systemd systems.
 func collectLinuxServices() []models.ServiceInfo {
 	services := collectSystemdServices()
@@ -37,40 +40,41 @@ func collectLinuxServices() []models.ServiceInfo {
 }
 
 func collectSystemdServices() []models.ServiceInfo {
-	cmd := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain", "--no-legend")
-	output, err := cmd.Output()
+    ctx := context.Background()
+	conn, err := dbus.NewWithContext(ctx)
 	if err != nil {
-		log.Printf("systemctl not available: %v", err)
+		log.Printf("Failed to connect to systemd bus: %v", err)
+		return nil
+	}
+	defer conn.Close()
+
+	units, err := conn.ListUnitsContext(ctx)
+	if err != nil {
+		log.Printf("Failed to list systemd units: %v", err)
 		return nil
 	}
 
 	var services []models.ServiceInfo
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+	for _, unit := range units {
+		if !strings.HasSuffix(unit.Name, ".service") {
 			continue
 		}
 
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
+		name := strings.TrimSuffix(unit.Name, ".service")
+		displayName := unit.Description
+		if displayName == "" {
+			displayName = name
 		}
 
-		unit := fields[0]
-		sub := fields[3]
-
-		displayName := unit
-		if len(fields) > 4 {
-			displayName = strings.Join(fields[4:], " ")
+		startType := "unknown"
+		if prop, err := conn.GetUnitPropertyContext(ctx, unit.Name, "UnitFileState"); err == nil && prop != nil {
+			if val, ok := prop.Value.Value().(string); ok {
+				startType = normalizeStartType(val)
+			}
 		}
 
-		name := strings.TrimSuffix(unit, ".service")
-
-		startType := getSystemdStartType(unit)
-
-		status := normalizeLinuxStatus(sub)
+		status := normalizeLinuxStatus(unit.SubState)
 
 		services = append(services, models.ServiceInfo{
 			Name:        name,
@@ -83,34 +87,14 @@ func collectSystemdServices() []models.ServiceInfo {
 	return services
 }
 
-func getSystemdStartType(unit string) string {
-	cmd := exec.Command("systemctl", "is-enabled", unit)
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			out := strings.TrimSpace(string(exitErr.Stderr))
-			if out == "" {
-				out = strings.TrimSpace(string(output))
-			}
-			return normalizeStartType(out)
-		}
-		return "unknown"
-	}
-	return normalizeStartType(strings.TrimSpace(string(output)))
-}
-
 func normalizeStartType(raw string) string {
 	switch raw {
-	case "enabled", "enabled-runtime":
+	case "enabled", "enabled-runtime", "generated", "static", "indirect":
 		return "auto"
-	case "disabled":
+	case "disabled", "masked", "masked-runtime":
 		return "disabled"
-	case "masked", "masked-runtime":
-		return "disabled"
-	case "static", "indirect":
-		return "manual"
 	default:
-		return "unknown"
+		return "manual"
 	}
 }
 
@@ -118,11 +102,9 @@ func normalizeLinuxStatus(sub string) string {
 	switch sub {
 	case "running":
 		return "running"
-	case "exited":
+	case "exited", "dead":
 		return "stopped"
-	case "dead":
-		return "stopped"
-	case "waiting", "start-pre", "start", "start-post":
+	case "waiting", "start-pre", "start", "start-post", "reloading":
 		return "starting"
 	case "failed":
 		return "failed"
