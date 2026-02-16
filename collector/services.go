@@ -28,13 +28,11 @@ func collectServices(currentOS string) []models.ServiceInfo {
 // collectLinuxServices uses systemctl to list services.
 // Falls back to /etc/init.d/ scanning for non-systemd systems.
 func collectLinuxServices() []models.ServiceInfo {
-	// Try systemctl first
 	services := collectSystemdServices()
 	if services != nil {
 		return services
 	}
 
-	// Fallback: scan /etc/init.d/
 	return collectInitDServices()
 }
 
@@ -55,29 +53,23 @@ func collectSystemdServices() []models.ServiceInfo {
 			continue
 		}
 
-		// Format: UNIT LOAD ACTIVE SUB DESCRIPTION...
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
 
 		unit := fields[0]
-		// active := fields[2] // active, inactive, failed
-		sub := fields[3] // running, exited, dead, waiting, etc.
+		sub := fields[3]
 
-		// Get display name from the rest of the fields
 		displayName := unit
 		if len(fields) > 4 {
 			displayName = strings.Join(fields[4:], " ")
 		}
 
-		// Clean up unit name (remove .service suffix)
 		name := strings.TrimSuffix(unit, ".service")
 
-		// Determine start type
 		startType := getSystemdStartType(unit)
 
-		// Normalize status
 		status := normalizeLinuxStatus(sub)
 
 		services = append(services, models.ServiceInfo{
@@ -95,7 +87,6 @@ func getSystemdStartType(unit string) string {
 	cmd := exec.Command("systemctl", "is-enabled", unit)
 	output, err := cmd.Output()
 	if err != nil {
-		// is-enabled returns non-zero for disabled/masked
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			out := strings.TrimSpace(string(exitErr.Stderr))
 			if out == "" {
@@ -157,7 +148,6 @@ func collectInitDServices() []models.ServiceInfo {
 			continue
 		}
 
-		// Try to check status via service command
 		status := "unknown"
 		statusCmd := exec.Command("service", name, "status")
 		if err := statusCmd.Run(); err == nil {
@@ -189,9 +179,7 @@ func collectDarwinServices() []models.ServiceInfo {
 	var services []models.ServiceInfo
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 
-	// Skip header line
 	if scanner.Scan() {
-		// discard header: PID Status Label
 	}
 
 	for scanner.Scan() {
@@ -200,7 +188,6 @@ func collectDarwinServices() []models.ServiceInfo {
 			continue
 		}
 
-		// Format: PID Status Label
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -218,7 +205,7 @@ func collectDarwinServices() []models.ServiceInfo {
 			Name:        label,
 			DisplayName: label,
 			Status:      status,
-			StartType:   "auto", // launchd services are typically auto
+			StartType:   "auto",
 		})
 	}
 
@@ -242,9 +229,7 @@ func collectWindowsServices() []models.ServiceInfo {
 	var services []models.ServiceInfo
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 
-	// Skip CSV header
 	if scanner.Scan() {
-		// discard: "Name","DisplayName","Status","StartType"
 	}
 
 	for scanner.Scan() {
@@ -319,7 +304,7 @@ func parseCSVLine(line string) []string {
 		case c == '"':
 			if inQuotes && i+1 < len(line) && line[i+1] == '"' {
 				field.WriteByte('"')
-				i++ // skip escaped quote
+				i++
 			} else {
 				inQuotes = !inQuotes
 			}
