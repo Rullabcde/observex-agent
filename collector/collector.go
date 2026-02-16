@@ -40,5 +40,8 @@ func CollectMetrics() (*models.Metric, error) {
 	metric.Latency = collectLatency()
 	metric.Processes = collectTopProcesses()
 
+	// Services discovery
+	metric.Services = collectServices(currentOS)
+
 	return metric, nil
 }

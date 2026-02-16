@@ -19,6 +19,7 @@ type Metric struct {
 	Containers []ContainerInfo `json:"containers,omitempty"`
 	Latency    []LatencyInfo   `json:"latency,omitempty"`
 	Processes  []ProcessInfo   `json:"processes,omitempty"`
+	Services   []ServiceInfo   `json:"services,omitempty"`
 }
 
 type MetricPayload struct {
@@ -53,6 +54,7 @@ type MetricPayload struct {
 	Containers  []ContainerInfo `json:"containers,omitempty"`
 	Latency     []LatencyInfo   `json:"latency,omitempty"`
 	Processes   []ProcessInfo   `json:"processes,omitempty"`
+	Services    []ServiceInfo   `json:"services,omitempty"`
 }
 
 func (m *Metric) ToPayload(version string) *MetricPayload {
@@ -88,5 +90,6 @@ func (m *Metric) ToPayload(version string) *MetricPayload {
 		Containers:  m.Containers,
 		Latency:     m.Latency,
 		Processes:   m.Processes,
+		Services:    m.Services,
 	}
 }
