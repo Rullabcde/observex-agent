@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"observex-agent/config"
@@ -22,6 +23,7 @@ type Sender struct {
 	maxLogSize   int
 	compressLogs bool
 	agentVersion string
+	updateOnce   sync.Once
 }
 
 func NewSender(cfg *config.Config, version string) *Sender {
@@ -38,7 +40,9 @@ func NewSender(cfg *config.Config, version string) *Sender {
 }
 
 type APIConfig struct {
-	Interval int `json:"interval"`
+	Interval        int    `json:"interval"`
+	LatestVersion   string `json:"latestVersion,omitempty"`
+	UpdateAvailable bool   `json:"updateAvailable,omitempty"`
 }
 
 type APIResponse struct {
@@ -117,6 +121,15 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.D
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Success {
 		log.Printf("Metrics sent for agent: %s", apiResp.Agent)
+
+		// Log update warning once per session
+		if apiResp.Config.UpdateAvailable && apiResp.Config.LatestVersion != "" {
+			s.updateOnce.Do(func() {
+				log.Printf("⚠️  UPDATE AVAILABLE: Current=%s, Latest=%s. Download: https://github.com/Rullabcde/observex-agent/releases/latest",
+					s.agentVersion, apiResp.Config.LatestVersion)
+			})
+		}
+
 		if apiResp.Config.Interval > 0 {
 			return time.Duration(apiResp.Config.Interval) * time.Second, nil
 		}
