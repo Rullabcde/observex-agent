@@ -22,10 +22,17 @@ var (
 
 func DetectCapabilities() Capabilities {
 	capsOnce.Do(func() {
+		hasDBus := fileExists("/run/dbus/system_bus_socket")
+		if hasDBus {
+			// godbus/dbus defaults to /var/run/dbus/system_bus_socket, which doesn't exist 
+			// in a scratch container since it lacks the /var/run -> /run symlink.
+			os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket")
+		}
+
 		caps = Capabilities{
 			HasDockerSocket: fileExists("/var/run/docker.sock"),
 			HasHostPID:      detectHostPID(),
-			HasDBus:         fileExists("/run/dbus/system_bus_socket"),
+			HasDBus:         hasDBus,
 			HasJournal:      detectJournal(),
 			HasHostLogs:     detectHostLogs(),
 		}
