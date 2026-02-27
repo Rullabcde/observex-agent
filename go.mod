@@ -1,4 +1,4 @@
-module observex-agent
+module github.com/uptime-id/agent
 
 go 1.24.0
 

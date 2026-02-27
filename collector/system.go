@@ -3,7 +3,7 @@ package collector
 import (
 	"time"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -12,7 +12,6 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-// Gathers OS and Uptime info
 func collectSystemInfo(metric *models.Metric) {
 	if hostInfo, err := host.Info(); err == nil {
 		metric.System = models.SystemInfo{
@@ -24,7 +23,6 @@ func collectSystemInfo(metric *models.Metric) {
 	}
 }
 
-// Gathers CPU stats
 func collectCPUInfo(metric *models.Metric) {
 	if percent, err := cpu.Percent(time.Second, false); err == nil && len(percent) > 0 {
 		metric.CPU.Percent = percent[0]
@@ -37,7 +35,6 @@ func collectCPUInfo(metric *models.Metric) {
 	}
 }
 
-// Gathers Memory and Swap stats
 func collectMemoryInfo(metric *models.Metric) {
 	if memInfo, err := mem.VirtualMemory(); err == nil {
 		metric.Memory = models.MemoryInfo{
@@ -57,7 +54,6 @@ func collectMemoryInfo(metric *models.Metric) {
 	}
 }
 
-// Gathers Disk Usage and I/O stats
 func collectDiskInfo(metric *models.Metric, currentOS string) {
 	diskPath := "/"
 	if currentOS == "windows" {
@@ -78,7 +74,6 @@ func collectDiskInfo(metric *models.Metric, currentOS string) {
 	}
 }
 
-// Gathers Load Average (Unix only)
 func collectLoadInfo(metric *models.Metric, currentOS string) {
 	if currentOS != "windows" {
 		if loadAvg, err := load.Avg(); err == nil && loadAvg != nil {

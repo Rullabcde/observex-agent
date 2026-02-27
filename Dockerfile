@@ -15,9 +15,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /agent main.go
 RUN upx --best --lzma /agent
 
-# Create minimal user and group files
 RUN echo "root:x:0:0:root:/root:/bin/sh" > /etc/passwd.scratch && \
-    echo "agent:x:1001:1001:ObserveX Agent:/nonexistent:/sbin/nologin" >> /etc/passwd.scratch && \
+    echo "agent:x:1001:1001:UptimeID Agent:/nonexistent:/sbin/nologin" >> /etc/passwd.scratch && \
     echo "root:x:0:" > /etc/group.scratch && \
     echo "agent:x:1001:" >> /etc/group.scratch
 

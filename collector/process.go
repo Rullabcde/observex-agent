@@ -5,12 +5,11 @@ import (
 	"log"
 	"sort"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-// Gets top 10 processes by CPU and memory usage
 func collectTopProcesses() []models.ProcessInfo {
 	procs, err := process.Processes()
 	if err != nil {

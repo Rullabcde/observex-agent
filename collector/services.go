@@ -7,13 +7,16 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 
 	"github.com/coreos/go-systemd/v22/dbus"
 )
 
-// collectServices detects system services based on the OS.
+var dbusErrorOnce sync.Once
+
 func collectServices(currentOS string) []models.ServiceInfo {
 	switch currentOS {
 	case "linux":
@@ -28,8 +31,6 @@ func collectServices(currentOS string) []models.ServiceInfo {
 	}
 }
 
-// collectLinuxServices uses systemctl (via D-Bus) to list services.
-// Falls back to /etc/init.d/ scanning for non-systemd systems.
 func collectLinuxServices() []models.ServiceInfo {
 	services := collectSystemdServices()
 	if services != nil {
@@ -43,7 +44,9 @@ func collectSystemdServices() []models.ServiceInfo {
     ctx := context.Background()
 	conn, err := dbus.NewWithContext(ctx)
 	if err != nil {
-		log.Printf("Failed to connect to systemd bus: %v", err)
+		dbusErrorOnce.Do(func() {
+			log.Printf("D-Bus unavailable (systemd services disabled): %v", err)
+		})
 		return nil
 	}
 	defer conn.Close()
@@ -114,7 +117,10 @@ func normalizeLinuxStatus(sub string) string {
 }
 
 func collectInitDServices() []models.ServiceInfo {
-	cmd := exec.Command("ls", "/etc/init.d/")
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ls", "/etc/init.d/")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Failed to list /etc/init.d/: %v", err)
@@ -131,12 +137,14 @@ func collectInitDServices() []models.ServiceInfo {
 		}
 
 		status := "unknown"
-		statusCmd := exec.Command("service", name, "status")
+		statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		statusCmd := exec.CommandContext(statusCtx, "service", name, "status")
 		if err := statusCmd.Run(); err == nil {
 			status = "running"
 		} else {
 			status = "stopped"
 		}
+		statusCancel()
 
 		services = append(services, models.ServiceInfo{
 			Name:        name,
@@ -149,9 +157,11 @@ func collectInitDServices() []models.ServiceInfo {
 	return services
 }
 
-// collectDarwinServices uses launchctl to list services on macOS.
 func collectDarwinServices() []models.ServiceInfo {
-	cmd := exec.Command("launchctl", "list")
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "launchctl", "list")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Failed to run launchctl list: %v", err)
@@ -194,13 +204,15 @@ func collectDarwinServices() []models.ServiceInfo {
 	return services
 }
 
-// collectWindowsServices uses PowerShell to enumerate Windows services.
 func collectWindowsServices() []models.ServiceInfo {
 	if runtime.GOOS != "windows" {
 		return nil
 	}
 
-	cmd := exec.Command("powershell", "-NoProfile", "-Command",
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command",
 		"Get-Service | Select-Object Name,DisplayName,Status,StartType | ConvertTo-Csv -NoTypeInformation")
 	output, err := cmd.Output()
 	if err != nil {
@@ -274,7 +286,6 @@ func normalizeWindowsStartType(raw string) string {
 	}
 }
 
-// parseCSVLine parses a simple CSV line, handling quoted fields.
 func parseCSVLine(line string) []string {
 	var fields []string
 	var field strings.Builder

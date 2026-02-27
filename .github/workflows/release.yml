@@ -21,7 +21,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.24"
 
       - name: Get version
         id: version
@@ -37,30 +37,30 @@ jobs:
           # Linux builds - fully static (no CGO)
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -ldflags="$LDFLAGS" \
-            -o observex-agent-linux-amd64 main.go
+            -o uptimeid-agent-linux-amd64 main.go
 
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
             go build -ldflags="$LDFLAGS" \
-            -o observex-agent-linux-arm64 main.go
+            -o uptimeid-agent-linux-arm64 main.go
 
           # Mac builds
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
             go build -ldflags="$LDFLAGS" \
-            -o observex-agent-darwin-amd64 main.go
+            -o uptimeid-agent-darwin-amd64 main.go
 
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
             go build -ldflags="$LDFLAGS" \
-            -o observex-agent-darwin-arm64 main.go
+            -o uptimeid-agent-darwin-arm64 main.go
 
           # Windows build
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
             go build -ldflags="$LDFLAGS" \
-            -o observex-agent-windows-amd64.exe main.go
+            -o uptimeid-agent-windows-amd64.exe main.go
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: observex-agent-*
+          files: uptimeid-agent-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

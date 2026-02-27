@@ -11,8 +11,8 @@
 *~
 
 # Build output
-observex-agent
-observex-agent.exe
+uptimeid-agent
+uptimeid-agent.exe
 *.exe
 *.exe~
 *.dll

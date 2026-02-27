@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 
 	"bytes"
 
@@ -15,11 +15,11 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-// Gathers running docker containers
+const maxTotalContainerLogSize = 500 * 1024
+const maxPerContainerLogSize = 50 * 1024
+
 func collectDockerContainers() []models.ContainerInfo {
 	containers := []models.ContainerInfo{}
-
-	// Skip if no docker socket
 	if _, err := os.Stat("/var/run/docker.sock"); err != nil {
 		return containers
 	}
@@ -38,10 +38,21 @@ func collectDockerContainers() []models.ContainerInfo {
 		return containers
 	}
 
+	totalLogSize := 0
+
 	for _, c := range containerList {
 		name := ""
 		if len(c.Names) > 0 {
 			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		logs := ""
+		if totalLogSize < maxTotalContainerLogSize {
+			logs = collectContainerLogs(cli, c.ID)
+			if len(logs) > maxPerContainerLogSize {
+				logs = logs[:maxPerContainerLogSize] + "\n[TRUNCATED]"
+			}
+			totalLogSize += len(logs)
 		}
 
 		containers = append(containers, models.ContainerInfo{
@@ -51,21 +62,20 @@ func collectDockerContainers() []models.ContainerInfo {
 			Status:  c.Status,
 			State:   c.State,
 			Created: c.Created,
-			Logs:    collectContainerLogs(cli, c.ID),
+			Logs:    logs,
 		})
 	}
 
 	return containers
 }
 
-// Gathers logs from a specific container
 func collectContainerLogs(cli *client.Client, containerID string) string {
 	ctx := context.Background()
 
 	options := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Tail:       "100",
+		Tail:       "50",
 	}
 
 	reader, err := cli.ContainerLogs(ctx, containerID, options)
@@ -79,4 +89,3 @@ func collectContainerLogs(cli *client.Client, containerID string) string {
 
 	return buf.String()
 }
-

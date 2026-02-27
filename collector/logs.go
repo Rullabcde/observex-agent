@@ -3,10 +3,9 @@ package collector
 import (
 	"os"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 )
 
-// Gathers system logs based on OS
 func collectSystemLogs(osName string) models.LogsInfo {
 	logs := models.LogsInfo{}
 

@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"sync"
 	"time"
 
-	"observex-agent/config"
-	"observex-agent/models"
+	"github.com/uptime-id/agent/config"
+	"github.com/uptime-id/agent/models"
 )
+
+const maxResponseBodySize = 1 * 1024 * 1024
 
 type Sender struct {
 	apiURL       string
@@ -24,6 +27,8 @@ type Sender struct {
 	compressLogs bool
 	agentVersion string
 	updateOnce   sync.Once
+	retryMax     int
+	retryBaseMs  int
 }
 
 func NewSender(cfg *config.Config, version string) *Sender {
@@ -33,6 +38,8 @@ func NewSender(cfg *config.Config, version string) *Sender {
 		maxLogSize:   cfg.MaxLogSize,
 		compressLogs: true,
 		agentVersion: version,
+		retryMax:     3,
+		retryBaseMs:  500,
 		client: &http.Client{
 			Timeout: cfg.HTTPTimeout,
 		},
@@ -54,7 +61,6 @@ type APIResponse struct {
 	Code    string    `json:"code,omitempty"`
 }
 
-// SendMetrics sends metrics to the API and returns the new polling interval if provided.
 func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.Duration, error) {
 
 	if len(metric.Logs.System) > s.maxLogSize {
@@ -67,13 +73,61 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.D
 
 	payload := metric.ToPayload(s.agentVersion)
 
-	// Marshal JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return 0, fmt.Errorf("marshal failed: %w", err)
 	}
 
-	// Gzip compression
+	var lastErr error
+	for attempt := 0; attempt <= s.retryMax; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(float64(s.retryBaseMs)*math.Pow(2, float64(attempt-1))) * time.Millisecond
+			log.Printf("Retry %d/%d after %v", attempt, s.retryMax, backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+		}
+
+		result, err := s.doSend(ctx, jsonData)
+		if err != nil {
+			lastErr = err
+			if !isRetryable(err) {
+				return 0, err
+			}
+			continue
+		}
+		return result, nil
+	}
+
+	return 0, fmt.Errorf("all %d retries exhausted: %w", s.retryMax, lastErr)
+}
+
+func isRetryable(err error) bool {
+	errStr := err.Error()
+	for _, code := range []string{"400", "401", "403", "404", "422"} {
+		if len(errStr) > 12 && contains(errStr, code) {
+			return false
+		}
+	}
+	return true
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Sender) doSend(ctx context.Context, jsonData []byte) (time.Duration, error) {
 	var requestBody bytes.Buffer
 
 	if s.compressLogs {
@@ -106,9 +160,9 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.D
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	limitedReader := io.LimitReader(resp.Body, int64(maxResponseBodySize))
+	body, _ := io.ReadAll(limitedReader)
 
-	// Error response
 	if resp.StatusCode >= 400 {
 		var apiResp APIResponse
 		if err := json.Unmarshal(body, &apiResp); err == nil {
@@ -117,15 +171,13 @@ func (s *Sender) SendMetrics(ctx context.Context, metric *models.Metric) (time.D
 		return 0, fmt.Errorf("[API ERROR] %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Success: parse response for config
 	var apiResp APIResponse
 	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Success {
 		log.Printf("Metrics sent for agent: %s", apiResp.Agent)
 
-		// Log update warning once per session
 		if apiResp.Config.UpdateAvailable && apiResp.Config.LatestVersion != "" {
 			s.updateOnce.Do(func() {
-				log.Printf("⚠️  UPDATE AVAILABLE: Current=%s, Latest=%s. Download: https://github.com/Rullabcde/observex-agent/releases/latest",
+				log.Printf("⚠️  UPDATE AVAILABLE: Current=%s, Latest=%s. Download: https://github.com/uptime-id/agent/releases/latest",
 					s.agentVersion, apiResp.Config.LatestVersion)
 			})
 		}

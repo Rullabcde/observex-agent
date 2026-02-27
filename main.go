@@ -8,12 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"observex-agent/api"
-	"observex-agent/collector"
-	"observex-agent/config"
+	"github.com/uptime-id/agent/api"
+	"github.com/uptime-id/agent/collector"
+	"github.com/uptime-id/agent/config"
 )
 
-// Build info
 var (
 	version = "dev"
 	commit  = "none"
@@ -21,10 +20,8 @@ var (
 )
 
 func main() {
-	// Load config
 	cfg := config.Load()
 
-	// Validate config
 	if cfg.APIKey == "" {
 		log.Fatal("API_KEY required")
 	}
@@ -32,38 +29,46 @@ func main() {
 		log.Fatal("API_URL required")
 	}
 
-	log.Printf("ObserveX Agent %s (%s) built on %s", version, commit, date)
+	log.Printf("UptimeID Agent %s (%s) built on %s", version, commit, date)
 	log.Printf("API URL: %s", cfg.APIURL)
 	log.Printf("Interval: %v", cfg.SendInterval)
 
-	// Init sender
 	sender := api.NewSender(cfg, version)
 
-	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	// Run collector
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go runCollector(ctx, sender, cfg.SendInterval)
 
-	// Wait for signal
-	<-stop
-	log.Println("Shutting down...")
+	sig := <-stop
+	log.Printf("Received signal %v, shutting down gracefully...", sig)
 	cancel()
-	time.Sleep(1 * time.Second) // Give time for cleanup if needed
+
+	log.Println("Flushing final metrics...")
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer flushCancel()
+
+	metric, err := collector.CollectMetrics()
+	if err == nil {
+		if _, err := sender.SendMetrics(flushCtx, metric); err != nil {
+			log.Printf("Final flush failed: %v", err)
+		} else {
+			log.Println("Final metrics flushed successfully")
+		}
+	}
+
+	log.Println("Agent stopped")
 }
 
-// runCollector loop
 func runCollector(ctx context.Context, sender *api.Sender, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	currentInterval := interval
 
-	// Send immediately
 	newInterval := sendMetrics(ctx, sender)
 	if newInterval > 0 && newInterval != currentInterval {
 		log.Printf("Interval updated: %v -> %v", currentInterval, newInterval)
@@ -86,7 +91,6 @@ func runCollector(ctx context.Context, sender *api.Sender, interval time.Duratio
 	}
 }
 
-// sendMetrics invoke collection and send, returns new interval from server
 func sendMetrics(ctx context.Context, sender *api.Sender) time.Duration {
 	metric, err := collector.CollectMetrics()
 	if err != nil {

@@ -4,12 +4,11 @@ import (
 	"net"
 	"time"
 
-	"observex-agent/models"
+	"github.com/uptime-id/agent/models"
 
 	gopsnet "github.com/shirou/gopsutil/v3/net"
 )
 
-// Gathers network I/O stats
 func collectNetworkInfo() models.NetworkInfo {
 	if netIO, err := gopsnet.IOCounters(false); err == nil && len(netIO) > 0 {
 		return models.NetworkInfo{
@@ -20,7 +19,6 @@ func collectNetworkInfo() models.NetworkInfo {
 	return models.NetworkInfo{}
 }
 
-// Gather latency to public DNS servers
 func collectLatency() []models.LatencyInfo {
 	targets := []string{"8.8.8.8:53", "1.1.1.1:53"}
 	results := make([]models.LatencyInfo, 0, len(targets))

@@ -1,7 +1,9 @@
 package collector
 
 import (
+	"context"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -9,25 +11,22 @@ import (
 	"time"
 )
 
-// Executes a PowerShell command
+const cmdTimeout = 10 * time.Second
+
 func runPowerShell(cmd string) string {
-	out, _ := exec.Command("powershell", "-Command", cmd).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "powershell", "-Command", cmd).CombinedOutput()
 	return string(out)
 }
 
-// Executes a command and returns output + error
 func runCmdWithErr(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	return string(out), err
 }
 
-// Executes a command and returns output only
-func runCmd(name string, args ...string) string {
-	out, _ := exec.Command(name, args...).CombinedOutput()
-	return string(out)
-}
-
-// Gets public IP with timeout
 func getPublicIP() string {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get("https://api.ipify.org")
@@ -35,11 +34,22 @@ func getPublicIP() string {
 		return ""
 	}
 	defer resp.Body.Close()
-	ip, _ := io.ReadAll(resp.Body)
-	return string(ip)
+
+	limitedReader := io.LimitReader(resp.Body, 64)
+	ipBytes, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return ""
+	}
+
+	ipStr := strings.TrimSpace(string(ipBytes))
+
+	if net.ParseIP(ipStr) == nil {
+		return ""
+	}
+
+	return ipStr
 }
 
-// Reads the last n lines from a file
 func readLastLines(path string, n int) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -53,8 +63,6 @@ func readLastLines(path string, n int) string {
 	}
 	filesize := stat.Size()
 
-	// Read last 50KB which should covers 50 lines easily
-	// Average log line < 200 bytes * 50 = 10KB
 	const blockSize int64 = 50 * 1024
 
 	startPos := filesize - blockSize
@@ -66,7 +74,6 @@ func readLastLines(path string, n int) string {
 		return ""
 	}
 
-	// Read to buffer
 	bufLen := filesize - startPos
 	buf := make([]byte, bufLen)
 	if _, err := io.ReadFull(file, buf); err != nil {
@@ -75,7 +82,6 @@ func readLastLines(path string, n int) string {
 
 	lines := strings.Split(string(buf), "\n")
 
-	// Remove empty last line if exists (common in logs)
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
