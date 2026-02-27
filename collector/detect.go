@@ -30,13 +30,13 @@ func DetectCapabilities() Capabilities {
 			HasHostLogs:     detectHostLogs(),
 		}
 
-		log.Println("╔══ Agent Capabilities ══════════════════╗")
-		logCap("Docker", caps.HasDockerSocket, "container monitoring")
-		logCap("Host PID", caps.HasHostPID, "process listing")
-		logCap("D-Bus", caps.HasDBus, "systemd services")
-		logCap("Journal", caps.HasJournal, "system logs via journalctl")
-		logCap("Host Logs", caps.HasHostLogs, "log files (/var/log)")
-		log.Println("╚════════════════════════════════════════╝")
+		log.Println("╭─ Agent Capabilities ──────────────────────────────────────╮")
+		logCap("Docker", caps.HasDockerSocket, "(container monitoring)")
+		logCap("Host PID", caps.HasHostPID, "(process listing)")
+		logCap("D-Bus", caps.HasDBus, "(systemd services)")
+		logCap("Journal", caps.HasJournal, "(system logs via journalctl)")
+		logCap("Host Logs", caps.HasHostLogs, "(log files (/var/log))")
+		log.Println("╰───────────────────────────────────────────────────────────╯")
 	})
 	return caps
 }
@@ -48,7 +48,7 @@ func logCap(name string, available bool, desc string) {
 		icon = "✓"
 		status = "enabled"
 	}
-	log.Printf("║  %s %-10s — %-14s (%s)", icon, name, status, desc)
+	log.Printf("│ %s %-10s │ %-11s │ %-28s │", icon, name, status, desc)
 }
 
 func fileExists(path string) bool {
@@ -71,11 +71,7 @@ func detectHostPID() bool {
 }
 
 func detectJournal() bool {
-	if fileExists("/run/log/journal") {
-		return true
-	}
-	_, err := runCmdWithErr("journalctl", "--version")
-	return err == nil
+	return fileExists("/run/log/journal")
 }
 
 func detectHostLogs() bool {

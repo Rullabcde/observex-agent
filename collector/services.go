@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -117,28 +118,23 @@ func normalizeLinuxStatus(sub string) string {
 }
 
 func collectInitDServices() []models.ServiceInfo {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ls", "/etc/init.d/")
-	output, err := cmd.Output()
+	entries, err := os.ReadDir("/etc/init.d/")
 	if err != nil {
-		log.Printf("Failed to list /etc/init.d/: %v", err)
 		return nil
 	}
 
 	var services []models.ServiceInfo
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 
-	for scanner.Scan() {
-		name := strings.TrimSpace(scanner.Text())
-		if name == "" || name == "README" || name == "skeleton" {
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == "README" || name == "skeleton" || strings.HasPrefix(name, ".") || entry.IsDir() {
 			continue
 		}
 
 		status := "unknown"
 		statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		statusCmd := exec.CommandContext(statusCtx, "service", name, "status")
+		scriptPath := "/etc/init.d/" + name
+		statusCmd := exec.CommandContext(statusCtx, scriptPath, "status")
 		if err := statusCmd.Run(); err == nil {
 			status = "running"
 		} else {

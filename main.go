@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 
 var (
 	version = "dev"
-	commit  = "none"
 	date    = "unknown"
 )
 
@@ -29,9 +29,21 @@ func main() {
 		log.Fatal("API_URL required")
 	}
 
-	log.Printf("UptimeID Agent %s (%s) built on %s", version, commit, date)
+	log.Printf("UptimeID Agent %s built on %s", version, date)
 	log.Printf("API URL: %s", cfg.APIURL)
 	log.Printf("Interval: %v", cfg.SendInterval)
+
+	if _, err := os.Stat(".env"); os.IsNotExist(err) {
+		log.Println("No .env found, using env vars")
+	}
+
+	if cfg.APIURL != "" && !strings.HasPrefix(cfg.APIURL, "https://") {
+		if strings.HasPrefix(cfg.APIURL, "http://localhost") || strings.HasPrefix(cfg.APIURL, "http://127.0.0.1") {
+			log.Println("⚠️  WARNING: Using HTTP for localhost (development mode)")
+		} else {
+			log.Println("⚠️  WARNING: API_URL is not using HTTPS. This is insecure for production!")
+		}
+	}
 
 	sender := api.NewSender(cfg, version)
 
@@ -40,6 +52,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize detect capabilities here so it prints after our logs
+	collector.DetectCapabilities()
 
 	go runCollector(ctx, sender, cfg.SendInterval)
 
