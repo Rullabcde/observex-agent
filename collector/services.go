@@ -43,7 +43,7 @@ func collectLinuxServices() []models.ServiceInfo {
 
 func collectSystemdServices() []models.ServiceInfo {
     ctx := context.Background()
-	conn, err := dbus.NewWithContext(ctx)
+	conn, err := dbus.NewSystemConnectionContext(ctx)
 	if err != nil {
 		dbusErrorOnce.Do(func() {
 			log.Printf("D-Bus unavailable (systemd services disabled): %v", err)
