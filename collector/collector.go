@@ -51,6 +51,8 @@ func CollectMetrics() (*models.Metric, error) {
 	// Optional: Host processes (needs pid: host)
 	if caps.HasHostPID {
 		metric.Processes = collectTopProcesses()
+		metric.NetworkConnections = collectNetworkConnections()
+		metric.DiskIO = collectDiskIO()
 	}
 
 	// Optional: Systemd services (needs D-Bus socket)

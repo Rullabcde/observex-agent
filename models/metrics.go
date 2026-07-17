@@ -3,93 +3,99 @@ package models
 import "time"
 
 type Metric struct {
-	Timestamp  time.Time       `json:"timestamp"`
-	Hostname   string          `json:"hostname"`
-	PublicIP   string          `json:"publicIp"`
-	OS         string          `json:"os"`
-	System     SystemInfo      `json:"system"`
-	Uptime     uint64          `json:"uptime"`
-	CPU        CPUInfo         `json:"cpu"`
-	Memory     MemoryInfo      `json:"memory"`
-	Swap       SwapInfo        `json:"swap"`
-	Disk       DiskInfo        `json:"disk"`
-	Network    NetworkInfo     `json:"network"`
-	Load       LoadInfo        `json:"load"`
-	Logs       LogsInfo        `json:"logs"`
-	Containers []ContainerInfo `json:"containers,omitempty"`
-	Latency    []LatencyInfo   `json:"latency,omitempty"`
-	Processes  []ProcessInfo   `json:"processes,omitempty"`
-	Services   []ServiceInfo   `json:"services,omitempty"`
+	Timestamp           time.Time               `json:"timestamp"`
+	Hostname            string                  `json:"hostname"`
+	PublicIP            string                  `json:"publicIp"`
+	OS                  string                  `json:"os"`
+	System              SystemInfo              `json:"system"`
+	Uptime              uint64                  `json:"uptime"`
+	CPU                 CPUInfo                 `json:"cpu"`
+	Memory              MemoryInfo              `json:"memory"`
+	Swap                SwapInfo                `json:"swap"`
+	Disk                DiskInfo                `json:"disk"`
+	Network             NetworkInfo             `json:"network"`
+	Load                LoadInfo                `json:"load"`
+	Logs                LogsInfo                `json:"logs"`
+	Containers          []ContainerInfo         `json:"containers,omitempty"`
+	Latency             []LatencyInfo           `json:"latency,omitempty"`
+	Processes           []ProcessInfo           `json:"processes,omitempty"`
+	Services            []ServiceInfo           `json:"services,omitempty"`
+	NetworkConnections  []NetworkConnectionInfo `json:"networkConnections,omitempty"`
+	DiskIO              []DiskIOInfo            `json:"diskIO,omitempty"`
 }
 
 type MetricPayload struct {
-	Version     string          `json:"version"`
-	PublicIP    string          `json:"publicIp"`
-	Timestamp   int64           `json:"timestamp"`
-	CPU         float64         `json:"cpu"`
-	CPUModel    string          `json:"cpuModel"`
-	CPUCores    int             `json:"cpuCores"`
-	Memory      float64         `json:"memory"`
-	MemoryUsed  float64         `json:"memoryUsed"`
-	MemoryTotal float64         `json:"memoryTotal"`
-	Swap        float64         `json:"swap"`
-	SwapUsed    float64         `json:"swapUsed"`
-	SwapTotal   float64         `json:"swapTotal"`
-	Disk        float64         `json:"disk"`
-	DiskUsed    float64         `json:"diskUsed"`
-	DiskTotal   float64         `json:"diskTotal"`
-	DiskRead    float64         `json:"diskRead"`
-	DiskWrite   float64         `json:"diskWrite"`
-	NetworkIn   float64         `json:"networkIn"`
-	NetworkOut  float64         `json:"networkOut"`
-	Load1       float64         `json:"load1"`
-	Load5       float64         `json:"load5"`
-	Load15      float64         `json:"load15"`
-	Uptime      float64         `json:"uptime"`
-	Hostname    string          `json:"hostname"`
-	OS          string          `json:"os"`
-	Kernel      string          `json:"kernel"`
-	Arch        string          `json:"arch"`
-	Logs        *LogsInfo       `json:"logs,omitempty"`
-	Containers  []ContainerInfo `json:"containers,omitempty"`
-	Latency     []LatencyInfo   `json:"latency,omitempty"`
-	Processes   []ProcessInfo   `json:"processes,omitempty"`
-	Services    []ServiceInfo   `json:"services,omitempty"`
+	Version            string                  `json:"version"`
+	PublicIP           string                  `json:"publicIp"`
+	Timestamp          int64                   `json:"timestamp"`
+	CPU                float64                 `json:"cpu"`
+	CPUModel           string                  `json:"cpuModel"`
+	CPUCores           int                     `json:"cpuCores"`
+	Memory             float64                 `json:"memory"`
+	MemoryUsed         float64                 `json:"memoryUsed"`
+	MemoryTotal        float64                 `json:"memoryTotal"`
+	Swap               float64                 `json:"swap"`
+	SwapUsed           float64                 `json:"swapUsed"`
+	SwapTotal          float64                 `json:"swapTotal"`
+	Disk               float64                 `json:"disk"`
+	DiskUsed           float64                 `json:"diskUsed"`
+	DiskTotal          float64                 `json:"diskTotal"`
+	DiskRead           float64                 `json:"diskRead"`
+	DiskWrite          float64                 `json:"diskWrite"`
+	NetworkIn          float64                 `json:"networkIn"`
+	NetworkOut         float64                 `json:"networkOut"`
+	Load1              float64                 `json:"load1"`
+	Load5              float64                 `json:"load5"`
+	Load15             float64                 `json:"load15"`
+	Uptime             float64                 `json:"uptime"`
+	Hostname           string                  `json:"hostname"`
+	OS                 string                  `json:"os"`
+	Kernel             string                  `json:"kernel"`
+	Arch               string                  `json:"arch"`
+	Logs               *LogsInfo               `json:"logs,omitempty"`
+	Containers         []ContainerInfo         `json:"containers,omitempty"`
+	Latency            []LatencyInfo           `json:"latency,omitempty"`
+	Processes          []ProcessInfo           `json:"processes,omitempty"`
+	Services           []ServiceInfo           `json:"services,omitempty"`
+	NetworkConnections []NetworkConnectionInfo `json:"networkConnections,omitempty"`
+	DiskIO             []DiskIOInfo            `json:"diskIO,omitempty"`
 }
 
 func (m *Metric) ToPayload(version string) *MetricPayload {
 	return &MetricPayload{
-		Version:     version,
-		PublicIP:    m.PublicIP,
-		Timestamp:   m.Timestamp.UnixMilli(),
-		CPU:         m.CPU.Percent,
-		CPUModel:    m.CPU.Model,
-		CPUCores:    m.CPU.Cores,
-		Memory:      m.Memory.Percent,
-		MemoryUsed:  float64(m.Memory.Used),
-		MemoryTotal: float64(m.Memory.Total),
-		Swap:        m.Swap.Percent,
-		SwapUsed:    float64(m.Swap.Used),
-		SwapTotal:   float64(m.Swap.Total),
-		Disk:        m.Disk.Percent,
-		DiskUsed:    float64(m.Disk.Used),
-		DiskTotal:   float64(m.Disk.Total),
-		DiskRead:    float64(m.Disk.ReadBytes),
-		DiskWrite:   float64(m.Disk.WriteBytes),
-		NetworkIn:   float64(m.Network.BytesRecv),
-		NetworkOut:  float64(m.Network.BytesSent),
-		Load1:       m.Load.Load1,
-		Load5:       m.Load.Load5,
-		Load15:      m.Load.Load15,
-		Uptime:      float64(m.Uptime),
-		Hostname:    m.Hostname,
-		OS:          m.System.OS,
-		Kernel:      m.System.Kernel,
-		Arch:        m.System.Arch,
-		Logs:        &m.Logs,
-		Containers:  m.Containers,
-		Latency:     m.Latency,
-		Processes:   m.Processes,
-		Services:    m.Services,
+		Version:            version,
+		PublicIP:           m.PublicIP,
+		Timestamp:          m.Timestamp.UnixMilli(),
+		CPU:                m.CPU.Percent,
+		CPUModel:           m.CPU.Model,
+		CPUCores:           m.CPU.Cores,
+		Memory:             m.Memory.Percent,
+		MemoryUsed:         float64(m.Memory.Used),
+		MemoryTotal:        float64(m.Memory.Total),
+		Swap:               m.Swap.Percent,
+		SwapUsed:           float64(m.Swap.Used),
+		SwapTotal:          float64(m.Swap.Total),
+		Disk:               m.Disk.Percent,
+		DiskUsed:           float64(m.Disk.Used),
+		DiskTotal:          float64(m.Disk.Total),
+		DiskRead:           float64(m.Disk.ReadBytes),
+		DiskWrite:          float64(m.Disk.WriteBytes),
+		NetworkIn:          float64(m.Network.BytesRecv),
+		NetworkOut:         float64(m.Network.BytesSent),
+		Load1:              m.Load.Load1,
+		Load5:              m.Load.Load5,
+		Load15:             m.Load.Load15,
+		Uptime:             float64(m.Uptime),
+		Hostname:           m.Hostname,
+		OS:                 m.System.OS,
+		Kernel:             m.System.Kernel,
+		Arch:               m.System.Arch,
+		Logs:               &m.Logs,
+		Containers:         m.Containers,
+		Latency:            m.Latency,
+		Processes:          m.Processes,
+		Services:           m.Services,
+		NetworkConnections: m.NetworkConnections,
+		DiskIO:             m.DiskIO,
 	}
 }
