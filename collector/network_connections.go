@@ -75,7 +75,7 @@ func collectNetworkConnections() []models.NetworkConnectionInfo {
 	nextPrev := make(map[string]connSnapshot, len(conns))
 	for _, c := range conns {
 		key := fmt.Sprintf("%d:%s:%s:%d", c.pid, c.protocol, c.remoteIP, c.remotePort)
-		nextPrev[key] = c
+		nextPrev[key] = connSnapshot(c)
 	}
 	prevNetConns = nextPrev
 	prevNetConnsTime = now
@@ -193,13 +193,13 @@ func parseProcNetTcp() []ssConnection {
 
 	var results []ssConnection
 	for inode, info := range inodeMap {
-		pid, name, ok := pidInodes[inode]
-		if !ok || pid <= 0 {
+		pir, ok := pidInodes[inode]
+		if !ok || pir.pid <= 0 {
 			continue
 		}
 		results = append(results, ssConnection{
-			pid:        pid,
-			name:       name,
+			pid:        pir.pid,
+			name:       pir.name,
 			remoteIP:   info.remoteIP,
 			remotePort: info.remotePort,
 			protocol:   info.protocol,
