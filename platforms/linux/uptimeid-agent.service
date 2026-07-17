@@ -1,0 +1,27 @@
+[Unit]
+Description=UptimeID Monitoring Agent
+Documentation=https://github.com/uptime-id/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/uptimeid/uptimeid-agent
+WorkingDirectory=/opt/uptimeid
+EnvironmentFile=-/opt/uptimeid/.env
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
